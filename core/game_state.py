@@ -1,5 +1,9 @@
 from dataclasses import dataclass 
 
+from models.farm import Farm
+from models.market import Market
+from models.player import Player
+
 @dataclass
 class GameState:
     """
@@ -8,4 +12,8 @@ class GameState:
     """    
     day:int
     hour:int
-    player_money:int
+
+    player:Player
+    farm:Farm
+    market:Market
+
