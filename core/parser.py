@@ -1,23 +1,12 @@
-from core.game_state import GameState
-from models.farm import Farm
-from models.market import Market 
-from models.player import Player 
-from models.inventory import Inventory 
+from models.game_state import GameState
+
 
 class ObservationParser:
-    """Converts raw observation into GameState."""
+    """
+    Converts Kaggriculture observations into our internal GameState.
+    """
 
-    def parse(self,observation):
-        player = Player(money =0,inventory = Inventory)
-
-        farm = Farm()
-
-        market = Market(prices = {}) 
-
-        return GameState(
-            day = 0 ,
-            hour = 0 ,
-            player = Player,
-            farm = Farm ,
-            market = Market
+    def parse(self, observation: dict) -> GameState:
+        raise NotImplementedError(
+            "Parser implementation will be added after inspecting the official observation schema."
         )
