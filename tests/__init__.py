@@ -1,0 +1,3 @@
+"""
+AgriMind AI Test Package
+"""
