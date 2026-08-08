@@ -1,44 +1,175 @@
+"""
+models/tile.py
+
+Represents a single tile on the farm.
+"""
+
 from dataclasses import dataclass
 
 from models.crop import Crop
+from models.animal import Animal
 
 
-@dataclass
+@dataclass(slots=True)
 class Tile:
     """
-    One square of farmland.
+    Represents one tile on the farm.
     """
 
     x: int
     y: int
 
-    owner_id: int
+    content: object = None
 
-    locked: bool = False
+    # ==================================================
+    # Position
+    # ==================================================
 
-    purchase_cost: int = 500
+    @property
+    def position(self) -> tuple[int, int]:
+        return (self.x, self.y)
 
-    crop: Crop | None = None
+    # ==================================================
+    # Tile State
+    # ==================================================
 
-    occupied: bool = False
+    @property
+    def is_empty(self) -> bool:
+        return self.content is None
 
-    building: str | None = None
+    @property
+    def is_locked(self) -> bool:
+        return self.content == "LOCKED"
 
-    def is_empty(self):
+    @property
+    def is_weed(self) -> bool:
 
-        return self.crop is None
+        return (
+            isinstance(self.content, dict)
+            and
+            self.content.get("kind") == "WEED"
+        )
 
-    def plant_crop(self, crop: Crop):
+    # ==================================================
+    # Object Types
+    # ==================================================
 
-        if self.crop is None:
+    @property
+    def is_plant(self) -> bool:
+        return isinstance(
+            self.content,
+            Crop,
+        )
 
-            self.crop = crop
+    @property
+    def is_animal(self) -> bool:
+        return isinstance(
+            self.content,
+            Animal,
+        )
 
-    def remove_crop(self):
+    @property
+    def is_coop(self) -> bool:
 
-        harvested = self.crop
+        return (
+            self.is_animal
+            and
+            self.content.structure == "COOP"
+        )
 
-        self.crop = None
+    @property
+    def is_pasture(self) -> bool:
 
-        return harvested
+        return (
+            self.is_animal
+            and
+            self.content.structure == "PASTURE"
+        )
+
+    @property
+    def has_animal(self) -> bool:
+
+        return (
+            self.is_animal
+            and
+            self.content.exists
+        )
+
+    # ==================================================
+    # Helpers
+    # ==================================================
+
+    @property
+    def crop(self):
+
+        if self.is_plant:
+            return self.content
+
+        return None
+
+    @property
+    def animal(self):
+
+        if self.is_animal:
+            return self.content
+
+        return None
+
+    @property
+    def occupied(self) -> bool:
+
+        return (
+            not self.is_empty
+            and
+            not self.is_locked
+        )
+
+    # ==================================================
+    # Utility
+    # ==================================================
+
+    def clear(self):
+
+        self.content = None
+
+    def update(self, value):
+
+        self.content = value
+
+    # ==================================================
+    # Debug
+    # ==================================================
+
+    def __repr__(self):
+
+        if self.is_empty:
+            state = "EMPTY"
+
+        elif self.is_locked:
+            state = "LOCKED"
+
+        elif self.is_weed:
+            state = "WEED"
+
+        elif self.is_plant:
+            state = self.crop.name
+
+        elif self.has_animal:
+            state = self.animal.animal
+
+        elif self.is_coop:
+            state = "EMPTY_COOP"
+
+        elif self.is_pasture:
+            state = "EMPTY_PASTURE"
+
+        else:
+            state = "UNKNOWN"
+
+        return (
+            f"Tile("
+            f"x={self.x}, "
+            f"y={self.y}, "
+            f"type={state})"
+        )
     

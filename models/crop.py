@@ -1,46 +1,95 @@
+"""
+models/crop.py
+
+Crop model for AgriMind AI.
+"""
+
 from dataclasses import dataclass
 
+from core.constants import CropType
 
-@dataclass
+
+@dataclass(slots=True)
 class Crop:
     """
     Represents a crop growing on a farm tile.
     """
 
-    crop_id: int
-    name: str
+    crop_type: CropType
 
-    buy_price: int
-    sell_price: int
+    planted_day: int
 
-    growth_stage: int = 0
-    max_growth_stage: int = 5
+    watered_today: bool
 
-    watered: bool = False
-    fertilized: bool = False
+    consecutive_unwatered: int
 
-    harvest_ready: bool = False
+    yield_units: int
 
-    days_since_planted: int = 0
+    fertilized_until_day: int
 
-    yield_amount: int = 1
+    max_lifespan_step: int
 
-    def grow(self):
+    # ==================================================
+    # AI Helpers
+    # ==================================================
+
+    @property
+    def name(self) -> str:
+        return self.crop_type.value
+
+    @property
+    def needs_water(self) -> bool:
+        return not self.watered_today
+
+    @property
+    def is_watered(self) -> bool:
+        return self.watered_today
+
+    @property
+    def is_fertilized(self) -> bool:
+        return self.fertilized_until_day >= 0
+
+    @property
+    def can_harvest(self) -> bool:
+        return self.yield_units > 0
+
+    @property
+    def is_dying(self) -> bool:
+        return self.consecutive_unwatered >= 1
+
+    @property
+    def remaining_life(self) -> int:
+        return max(
+            0,
+            self.max_lifespan_step - self.consecutive_unwatered
+        )
+
+    @property
+    def health(self) -> float:
         """
-        Grow the crop by one stage if watered.
+        Returns crop health between 0 and 1.
         """
 
-        if self.watered:
-            self.growth_stage += 1
-            self.days_since_planted += 1
-            self.watered = False
+        if self.max_lifespan_step <= 0:
+            return 1.0
 
-        if self.growth_stage >= self.max_growth_stage:
-            self.harvest_ready = True
+        return max(
+            0.0,
+            1.0 - (
+                self.consecutive_unwatered /
+                self.max_lifespan_step
+            )
+        )
 
-    def fertilize(self):
-        self.fertilized = True
-        self.yield_amount += 1
+    # ==================================================
+    # Debug
+    # ==================================================
 
-    def water(self):
-        self.watered = True
+    def __repr__(self):
+
+        return (
+            f"Crop("
+            f"{self.crop_type.value}, "
+            f"yield={self.yield_units}, "
+            f"watered={self.watered_today})"
+        )

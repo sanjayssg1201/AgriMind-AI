@@ -1,44 +1,97 @@
-from dataclasses import dataclass
+"""
+models/unit.py
+
+Base class for all movable units in the game.
+Both Farmer and FarmHand inherit from this class.
+"""
+
+from dataclasses import dataclass, field
+from typing import dict
 
 
-@dataclass
+@dataclass(slots=True)
 class Unit:
     """
-    Base class for every movable character on the farm.
+    Base class for every movable entity.
     """
 
-    unit_id: int
-
-    owner_id: int
-
-    name: str
+    id: int
 
     x: int
     y: int
 
-    energy: int = 100
+    inventory: Dict[str, int] = field(default_factory=dict)
 
-    carrying_capacity: int = 10
+    current_task: str | None = None
 
     busy: bool = False
 
-    current_action: str = "IDLE"
+    # -------------------------------------------------
+    # Position
+    # -------------------------------------------------
 
-    def move_north(self):
-        self.y -= 1
+    @property
+    def position(self) -> tuple[int, int]:
+        return (self.x, self.y)
 
-    def move_south(self):
-        self.y += 1
+    def move_to(self, x: int, y: int) -> None:
+        self.x = x
+        self.y = y
 
-    def move_east(self):
-        self.x += 1
+    # -------------------------------------------------
+    # Inventory
+    # -------------------------------------------------
 
-    def move_west(self):
-        self.x -= 1
+    def add_item(self, item: str, quantity: int = 1) -> None:
+        self.inventory[item] = self.inventory.get(item, 0) + quantity
 
-    def set_action(self, action: str):
-        self.current_action = action
+    def remove_item(self, item: str, quantity: int = 1) -> bool:
 
-    def reset_turn(self):
+        if self.inventory.get(item, 0) < quantity:
+            return False
+
+        self.inventory[item] -= quantity
+
+        if self.inventory[item] == 0:
+            del self.inventory[item]
+
+        return True
+
+    def item_count(self, item: str) -> int:
+        return self.inventory.get(item, 0)
+
+    def has_item(self, item: str, quantity: int = 1) -> bool:
+        return self.item_count(item) >= quantity
+
+    def clear_inventory(self) -> None:
+        self.inventory.clear()
+
+    # -------------------------------------------------
+    # Task Management
+    # -------------------------------------------------
+
+    def assign_task(self, task: str) -> None:
+        self.current_task = task
+        self.busy = True
+
+    def clear_task(self) -> None:
+        self.current_task = None
         self.busy = False
-        self.current_action = "IDLE"
+
+    # -------------------------------------------------
+    # Utility
+    # -------------------------------------------------
+
+    def distance_to(self, x: int, y: int) -> int:
+        """
+        Manhattan distance.
+        """
+        return abs(self.x - x) + abs(self.y - y)
+
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}"
+            f"(id={self.id}, "
+            f"pos=({self.x},{self.y}), "
+            f"task={self.current_task})"
+        )

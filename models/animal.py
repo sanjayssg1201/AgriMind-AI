@@ -1,57 +1,162 @@
+"""
+models/animal.py
+
+Animal model for AgriMind AI.
+"""
+
 from dataclasses import dataclass
 
+from core.constants import AnimalType, BuildingType
 
-@dataclass
+
+@dataclass(slots=True)
 class Animal:
     """
-    Represents an animal owned by a player.
+    Represents an animal placed inside a Coop or Pasture.
     """
 
-    animal_id: int
+    structure: BuildingType
 
-    animal_type: str
+    animal_type: AnimalType | None
 
-    buy_price: int
+    placed_day: int
 
-    sell_price: int
+    fed_today: bool
 
-    hunger: int = 0
+    cared_today: bool
 
-    happiness: int = 100
+    consecutive_unfed: int
 
-    product_ready: bool = False
+    fertilizer_available: bool
 
-    product_name: str = ""
+    pending_care_bonus: int
 
-    days_alive: int = 0
+    yield_units: int
 
-    def feed(self):
+    # ==================================================
+    # Basic Properties
+    # ==================================================
 
-        self.hunger = 0
+    @property
+    def exists(self) -> bool:
+        return self.animal_type is not None
 
-        self.happiness = min(100, self.happiness + 10)
+    @property
+    def name(self) -> str | None:
+        if self.animal_type is None:
+            return None
+        return self.animal_type.value
 
-    def new_day(self):
+    @property
+    def building(self) -> str:
+        return self.structure.value
 
-        self.days_alive += 1
+    # ==================================================
+    # Daily State
+    # ==================================================
 
-        self.hunger += 10
+    @property
+    def needs_feed(self) -> bool:
+        return self.exists and not self.fed_today
 
-        if self.hunger > 60:
+    @property
+    def needs_care(self) -> bool:
+        return self.exists and not self.cared_today
 
-            self.happiness -= 5
+    @property
+    def is_fed(self) -> bool:
+        return self.fed_today
 
-        if self.days_alive % 2 == 0:
+    @property
+    def is_cared(self) -> bool:
+        return self.cared_today
 
-            self.product_ready = True
+    # ==================================================
+    # Production
+    # ==================================================
 
-    def collect_product(self):
+    @property
+    def has_product(self) -> bool:
+        return self.yield_units > 0
 
-        if self.product_ready:
+    @property
+    def can_collect_fertilizer(self) -> bool:
+        return (
+            self.exists
+            and
+            self.fertilizer_available
+        )
 
-            self.product_ready = False
+    # ==================================================
+    # Health
+    # ==================================================
 
-            return self.product_name
+    @property
+    def is_starving(self) -> bool:
+        return self.consecutive_unfed >= 1
 
-        return None
+    @property
+    def escaped(self) -> bool:
+        """
+        Conservative helper.
+        Escape rules remain enforced by the game engine.
+        """
+        return (
+            self.exists
+            and
+            self.consecutive_unfed >= 2
+        )
+
+    @property
+    def health(self) -> float:
+        """
+        Returns animal health between 0 and 1.
+        """
+
+        if self.consecutive_unfed == 0:
+            return 1.0
+
+        return max(
+            0.0,
+            1.0 - (self.consecutive_unfed / 5)
+        )
+
+    # ==================================================
+    # AI Score
+    # ==================================================
+
+    @property
+    def production_score(self) -> float:
+        """
+        Heuristic used by planners.
+        """
+
+        score = float(self.yield_units)
+
+        if self.pending_care_bonus > 0:
+            score += self.pending_care_bonus
+
+        if self.fertilizer_available:
+            score += 1.5
+
+        return score
+
+    # ==================================================
+    # Debug
+    # ==================================================
+
+    def __repr__(self):
+
+        if not self.exists:
+            return (
+                f"{self.structure.value}(Empty)"
+            )
+
+        return (
+            f"Animal("
+            f"{self.animal_type.value}, "
+            f"yield={self.yield_units}, "
+            f"fed={self.fed_today}, "
+            f"care={self.cared_today})"
+        )
     

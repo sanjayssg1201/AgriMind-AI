@@ -1,120 +1,110 @@
-from dataclasses import dataclass, field
+"""
+models/inventory.py
+
+Inventory model for AgriMind AI.
+
+Represents the player's private inventory received
+from the Kaggriculture observation.
+"""
+
+from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(slots=True)
 class Inventory:
     """
-    Represents everything owned by a player.
+    Wrapper around the player's private inventory.
     """
 
-    seeds: dict[str, int] = field(default_factory=dict)
+    shed: dict
+    seeds: dict
+    inventories: list
 
-    crops: dict[str, int] = field(default_factory=dict)
+    # --------------------------------------------------
+    # Shed
+    # --------------------------------------------------
 
-    animals: dict[str, int] = field(default_factory=dict)
+    def item_count(self, item: str) -> int:
+        return self.shed.get(item, 0)
 
-    products: dict[str, int] = field(default_factory=dict)
+    def has_item(self, item: str, quantity: int = 1) -> bool:
+        return self.item_count(item) >= quantity
 
-    fertilizer: int = 0
+    @property
+    def total_items(self) -> int:
+        return sum(self.shed.values())
 
-    coins: int = 3000
+    @property
+    def is_full(self) -> bool:
+        return self.total_items >= 100
 
-    # -----------------------------
-    # Coins
-    # -----------------------------
-
-    def add_coins(self, amount: int):
-        self.coins += amount
-
-    def spend_coins(self, amount: int):
-        if self.coins >= amount:
-            self.coins -= amount
-            return True
-        return False
-
-    # -----------------------------
+    # --------------------------------------------------
     # Seeds
-    # -----------------------------
+    # --------------------------------------------------
 
-    def add_seed(self, seed: str, quantity: int = 1):
-        self.seeds[seed] = self.seeds.get(seed, 0) + quantity
+    def seed_count(self, crop: str) -> int:
+        return self.seeds.get(crop, 0)
 
-    def remove_seed(self, seed: str, quantity: int = 1):
-        if self.seeds.get(seed, 0) >= quantity:
-            self.seeds[seed] -= quantity
+    def has_seed(self, crop: str, quantity: int = 1) -> bool:
+        return self.seed_count(crop) >= quantity
 
-            if self.seeds[seed] == 0:
-                del self.seeds[seed]
+    @property
+    def total_seeds(self) -> int:
+        return sum(self.seeds.values())
 
-            return True
+    # --------------------------------------------------
+    # Unit Inventories
+    # --------------------------------------------------
 
-        return False
+    def farmer_inventory(self):
+        if self.inventories:
+            return self.inventories[0]
+        return {}
 
-    # -----------------------------
-    # Harvested Crops
-    # -----------------------------
+    def farmhand_inventory(self, index: int):
+        if 0 <= index + 1 < len(self.inventories):
+            return self.inventories[index + 1]
+        return {}
 
-    def add_crop(self, crop: str, quantity: int = 1):
-        self.crops[crop] = self.crops.get(crop, 0) + quantity
+    def inventory_of(self, unit_index: int):
+        if 0 <= unit_index < len(self.inventories):
+            return self.inventories[unit_index]
+        return {}
 
-    def remove_crop(self, crop: str, quantity: int = 1):
-        if self.crops.get(crop, 0) >= quantity:
-            self.crops[crop] -= quantity
+    # --------------------------------------------------
+    # AI Helper Functions
+    # --------------------------------------------------
 
-            if self.crops[crop] == 0:
-                del self.crops[crop]
+    def can_sell(self, item: str) -> bool:
+        return self.item_count(item) > 0
 
-            return True
+    def can_plant(self, crop: str) -> bool:
+        return self.has_seed(crop)
 
-        return False
+    def available_products(self) -> list[str]:
+        return [
+            item
+            for item, qty in self.shed.items()
+            if qty > 0
+        ]
 
-    # -----------------------------
-    # Animals
-    # -----------------------------
+    def available_seeds(self) -> list[str]:
+        return [
+            crop
+            for crop, qty in self.seeds.items()
+            if qty > 0
+        ]
 
-    def add_animal(self, animal: str):
-        self.animals[animal] = self.animals.get(animal, 0) + 1
+    # --------------------------------------------------
+    # Debug
+    # --------------------------------------------------
 
-    def remove_animal(self, animal: str):
-        if self.animals.get(animal, 0) > 0:
-            self.animals[animal] -= 1
+    def __repr__(self):
 
-            if self.animals[animal] == 0:
-                del self.animals[animal]
-
-            return True
-
-        return False
-
-    # -----------------------------
-    # Animal Products
-    # -----------------------------
-
-    def add_product(self, product: str, quantity: int = 1):
-        self.products[product] = self.products.get(product, 0) + quantity
-
-    def remove_product(self, product: str, quantity: int = 1):
-        if self.products.get(product, 0) >= quantity:
-            self.products[product] -= quantity
-
-            if self.products[product] == 0:
-                del self.products[product]
-
-            return True
-
-        return False
-
-    # -----------------------------
-    # Fertilizer
-    # -----------------------------
-
-    def add_fertilizer(self, quantity: int = 1):
-        self.fertilizer += quantity
-
-    def use_fertilizer(self, quantity: int = 1):
-        if self.fertilizer >= quantity:
-            self.fertilizer -= quantity
-            return True
-        return False
+        return (
+            f"Inventory("
+            f"items={self.total_items}, "
+            f"seeds={self.total_seeds})"
+        )
     
  

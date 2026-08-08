@@ -1,28 +1,72 @@
+"""
+models/farmhand.py
+
+Represents a hired farm hand.
+"""
+
 from dataclasses import dataclass
 
 from models.unit import Unit
 
 
-@dataclass
+@dataclass(slots=True)
 class FarmHand(Unit):
     """
-    Worker hired by the farmer.
+    Represents a hired worker.
+
+    Farm hands exist only for the current day and
+    disappear at the end of the day as per the
+    Kaggriculture rules.
     """
 
-    wage: int = 150
+    name: str = "Farm Hand"
 
-    level: int = 1
+    hire_number: int = 0
 
-    productivity: float = 1.0
+    hired_today: bool = True
 
-    hired: bool = False
+    movement_points: int = 1
 
-    def hire(self):
+    def reset_turn(self) -> None:
+        """
+        Reset farm hand state at the beginning of a turn.
+        """
+        self.busy = False
 
-        self.hired = True
+    def end_turn(self) -> None:
+        """
+        Called after completing an action.
+        """
+        self.busy = True
 
-    def upgrade(self):
+    @property
+    def available(self) -> bool:
+        """
+        Returns True if the farm hand is free.
+        """
+        return not self.busy
 
-        self.level += 1
+    @property
+    def active(self) -> bool:
+        """
+        Returns whether the farm hand is active.
+        """
+        return self.hired_today
 
-        self.productivity += 0.20
+    def dismiss(self) -> None:
+        """
+        Marks the farm hand as inactive.
+        Called at the end of the day.
+        """
+        self.hired_today = False
+        self.busy = True
+        self.current_task = None
+        self.clear_inventory()
+
+    def __str__(self) -> str:
+        return (
+            f"FarmHand("
+            f"id={self.id}, "
+            f"position=({self.x}, {self.y}), "
+            f"task={self.current_task})"
+        )

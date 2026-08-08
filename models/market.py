@@ -1,45 +1,146 @@
-from dataclasses import dataclass, field
+"""
+models/market.py
+
+Market model for AgriMind AI.
+
+Represents the shared marketplace.
+"""
+
+from dataclasses import dataclass
 
 
-@dataclass
+@dataclass(slots=True)
 class Market:
     """
-    Dynamic marketplace used by both players.
+    Wrapper around the market observation.
     """
 
-    prices: dict[str, int] = field(default_factory=lambda: {
-        "WHEAT": 25,
-        "CARROT": 35,
-        "TOMATO": 60,
-        "STRAWBERRY": 120,
-        "MELON": 250,
-        "EGG": 50,
-        "MILK": 160,
-        "WOOL": 200
-    })
+    inventory: dict
+    prices: dict
 
-    demand: dict[str, int] = field(default_factory=dict)
+    # --------------------------------------------------
+    # Price Information
+    # --------------------------------------------------
 
-    def get_price(self, item: str):
+    def price(self, item: str) -> int:
         return self.prices.get(item, 0)
 
-    def buy(self, item: str, quantity: int):
+    def inventory_count(self, item: str) -> int:
+        return self.inventory.get(item, 0)
 
-        return self.get_price(item) * quantity
+    # --------------------------------------------------
+    # Buy / Sell Helpers
+    # --------------------------------------------------
 
-    def sell(self, item: str, quantity: int):
+    def can_buy(self, item: str) -> bool:
+        """
+        Only Wheat and Fertilizer can be bought
+        back from the market.
+        """
+        return item in (
+            "WHEAT",
+            "FERTILIZER",
+        )
 
-        return self.get_price(item) * quantity
+    def can_sell(self, item: str) -> bool:
+        """
+        Every harvested product can be sold.
+        """
+        return self.price(item) > 0
 
-    def increase_demand(self, item: str):
+    # --------------------------------------------------
+    # AI Helpers
+    # --------------------------------------------------
 
-        self.demand[item] = self.demand.get(item, 0) + 1
+    def most_expensive_product(self) -> str | None:
 
-        self.prices[item] += 2
+        if not self.prices:
+            return None
 
-    def decrease_demand(self, item: str):
+        return max(
+            self.prices,
+            key=self.prices.get,
+        )
 
-        self.demand[item] = self.demand.get(item, 0) - 1
+    def cheapest_product(self) -> str | None:
 
-        if self.prices[item] > 5:
-            self.prices[item] -= 2
+        if not self.prices:
+            return None
+
+        return min(
+            self.prices,
+            key=self.prices.get,
+        )
+
+    def highest_inventory(self) -> str | None:
+
+        if not self.inventory:
+            return None
+
+        return max(
+            self.inventory,
+            key=self.inventory.get,
+        )
+
+    def lowest_inventory(self) -> str | None:
+
+        if not self.inventory:
+            return None
+
+        return min(
+            self.inventory,
+            key=self.inventory.get,
+        )
+
+    # --------------------------------------------------
+    # Strategy Helpers
+    # --------------------------------------------------
+
+    def is_high_price(
+        self,
+        item: str,
+        threshold: int,
+    ) -> bool:
+
+        return self.price(item) >= threshold
+
+    def is_low_price(
+        self,
+        item: str,
+        threshold: int,
+    ) -> bool:
+
+        return self.price(item) <= threshold
+
+    def estimated_sale_value(
+        self,
+        item: str,
+        quantity: int,
+    ) -> int:
+
+        return self.price(item) * quantity
+
+    # --------------------------------------------------
+    # Information
+    # --------------------------------------------------
+
+    @property
+    def product_count(self) -> int:
+        return len(self.prices)
+
+    @property
+    def market_size(self) -> int:
+        return sum(
+            self.inventory.values()
+        )
+
+    # --------------------------------------------------
+    # Debug
+    # --------------------------------------------------
+
+    def __repr__(self):
+
+        return (
+            f"Market("
+            f"products={self.product_count})"
+        )

@@ -1,49 +1,145 @@
+"""
+models/player.py
+
+Player model for AgriMind AI.
+"""
+
 from dataclasses import dataclass
 
-from core.player_type import PlayerType
 from models.farm import Farm
 from models.inventory import Inventory
 
 
-@dataclass
+@dataclass(slots=True)
 class Player:
     """
-    Represents one player.
+    Represents one player in the game.
     """
 
     player_id: int
-
-    name: str
-
-    player_type: PlayerType
-
-    coins: int
 
     farm: Farm
 
     inventory: Inventory
 
-    score: int = 0
+    # --------------------------------------------------
+    # Economy
+    # --------------------------------------------------
 
-    total_income: int = 0
+    @property
+    def money(self) -> float:
+        return self.farm.money
 
-    total_expense: int = 0
+    @property
+    def can_expand(self) -> bool:
+        return self.farm.expansion_available
 
-    def earn(self, amount: int):
+    @property
+    def farmhands(self) -> int:
+        return self.farm.farmhand_count
 
-        self.coins += amount
+    @property
+    def hires_today(self) -> int:
+        return self.farm.hires_today
 
-        self.total_income += amount
+    # --------------------------------------------------
+    # Inventory Helpers
+    # --------------------------------------------------
 
-    def spend(self, amount: int):
+    def item_count(self, item: str) -> int:
+        return self.inventory.item_count(item)
 
-        if self.coins >= amount:
+    def seed_count(self, crop: str) -> int:
+        return self.inventory.seed_count(crop)
 
-            self.coins -= amount
+    def has_item(
+        self,
+        item: str,
+        quantity: int = 1,
+    ) -> bool:
 
-            self.total_expense += amount
+        return self.inventory.has_item(
+            item,
+            quantity,
+        )
 
-            return True
+    def has_seed(
+        self,
+        crop: str,
+        quantity: int = 1,
+    ) -> bool:
 
-        return False
+        return self.inventory.has_seed(
+            crop,
+            quantity,
+        )
+
+    # --------------------------------------------------
+    # Farm Helpers
+    # --------------------------------------------------
+
+    def tile(
+        self,
+        x: int,
+        y: int,
+    ):
+
+        return self.farm.get_tile(x, y)
+
+    @property
+    def crops(self) -> int:
+        return self.farm.crop_tiles
+
+    @property
+    def animals(self) -> int:
+        return self.farm.animal_tiles
+
+    @property
+    def empty_tiles(self) -> int:
+        return self.farm.empty_tiles
+
+    @property
+    def unlocked_tiles(self) -> int:
+        return self.farm.unlocked_tiles
+
+    # --------------------------------------------------
+    # AI Helpers
+    # --------------------------------------------------
+
+    @property
+    def total_assets(self) -> int:
+        """
+        Approximate asset count.
+        (Used only for AI heuristics.)
+        """
+
+        return (
+            self.inventory.total_items
+            + self.inventory.total_seeds
+            + self.crops
+            + self.animals
+        )
+
+    @property
+    def can_hire(self) -> bool:
+        """
+        Basic hiring check.
+        Hiring cost calculation
+        is handled elsewhere.
+        """
+        return self.money > 0
+
+    # --------------------------------------------------
+    # Debug
+    # --------------------------------------------------
+
+    def __repr__(self):
+
+        return (
+            f"Player("
+            f"id={self.player_id}, "
+            f"money={self.money}, "
+            f"crops={self.crops}, "
+            f"animals={self.animals})"
+        )
     
