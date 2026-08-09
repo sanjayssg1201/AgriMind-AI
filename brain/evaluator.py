@@ -127,12 +127,14 @@ class Evaluator:
         return 25
 
     def _water_score(
-        self,
-        crop: Crop,
-    ) -> float:
+    self,
+    tile: Tile,
+) -> float:
 
-        if crop.needs_water:
+        if not tile.is_plant:
+            return -1000
 
+        if tile.crop.needs_water:
             return 60
 
         return 0
