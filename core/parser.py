@@ -5,6 +5,7 @@ Converts the Kaggriculture observation into
 AgriMind AI models.
 """
 
+from core import observation
 from core.observation import Observation
 
 from models.game_state import GameState
@@ -298,4 +299,60 @@ class ObservationParser:
                 "yield_units",
                 0,
             ),
+        )
+
+
+# =====================================================
+# Market
+# =====================================================
+
+    def _parse_market(self,observation: Observation,) -> Market:
+
+        return Market(
+            inventory=observation.market.get(
+                "inventory",
+                {},
+            ),
+            prices=observation.market.get(
+                "prices",
+                {},
+            ),
+        )
+
+    # =====================================================
+    # Town
+    # =====================================================
+
+    def _parse_town(self,observation: Observation,) -> Town:
+
+        return Town(
+            unlocked_shops=observation.town.get(
+                "unlocked_shops",
+                [],
+            ),
+        )
+
+
+class Parser:
+    """
+    Compatibility adapter for FarmAgent.
+
+    Converts the raw Kaggriculture dictionary into
+    an Observation object and then delegates parsing
+    to ObservationParser.
+    """
+
+    def __init__(self):
+        self.parser = ObservationParser()
+
+    def parse(self, observation):
+        if isinstance(observation, Observation):
+            wrapped = observation
+        else:
+            wrapped = Observation(
+                raw=observation
+            )
+
+        return self.parser.parse(
+            wrapped
         )

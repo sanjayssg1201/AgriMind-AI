@@ -1,5 +1,16 @@
-from dataclasses import dataclass
+"""
+core/actions.py
 
+Action definitions and action builders for AgriMind AI.
+"""
+
+from dataclasses import dataclass
+from typing import Any
+
+
+# =========================================================
+# Action
+# =========================================================
 
 @dataclass
 class Action:
@@ -20,10 +31,22 @@ class Action:
     quantity: int | None = None
 
 
-    class ActionFactory:
+# =========================================================
+# Action Factory
+# =========================================================
+
+class ActionFactory:
+    """
+    Creates individual Action objects.
+    """
 
     @staticmethod
-    def move(actor_id, x, y):
+    def move(
+        actor_id,
+        x,
+        y,
+    ):
+
         return Action(
             actor_id=actor_id,
             action_type="MOVE",
@@ -32,7 +55,11 @@ class Action:
         )
 
     @staticmethod
-    def plant(actor_id, crop):
+    def plant(
+        actor_id,
+        crop,
+    ):
+
         return Action(
             actor_id=actor_id,
             action_type="PLANT",
@@ -40,12 +67,277 @@ class Action:
         )
 
     @staticmethod
-    def harvest(actor_id):
+    def harvest(
+        actor_id,
+    ):
+
         return Action(
             actor_id=actor_id,
             action_type="HARVEST",
         )
 
+    @staticmethod
+    def water(
+        actor_id,
+    ):
+
+        return Action(
+            actor_id=actor_id,
+            action_type="WATER",
+        )
+
+    @staticmethod
+    def fertilize(
+        actor_id,
+    ):
+
+        return Action(
+            actor_id=actor_id,
+            action_type="FERTILIZE",
+        )
+
+    @staticmethod
+    def feed(
+        actor_id,
+    ):
+
+        return Action(
+            actor_id=actor_id,
+            action_type="FEED",
+        )
+
+    @staticmethod
+    def care(
+        actor_id,
+    ):
+
+        return Action(
+            actor_id=actor_id,
+            action_type="CARE",
+        )
+
+    @staticmethod
+    def pass_turn(
+        actor_id=0,
+    ):
+
+        return Action(
+            actor_id=actor_id,
+            action_type="PASS",
+        )
+
+
+# =========================================================
+# Action Builder
+# =========================================================
+from brain.action_candidate import ActionCandidate
+
+class ActionBuilder:
+    """
+    Converts internal action candidates into a simple
+    external action representation.
+
+    The final Kaggriculture formatting is handled by
+    main.py.
+    """
+        # =====================================================
+    # Build
+    # =====================================================
+
+    def build(self,candidate: ActionCandidate,):
+
+        if candidate is None:
+            return self.pass_turn()
+
+        task = str(
+            candidate.task
+        ).upper()
+
+        handlers = {
+            "HARVEST": self.harvest,
+            "PLANT": self.plant,
+            "WATER": self.water,
+            "FERTILIZE": self.fertilize,
+            "FEED": self.feed,
+            "CARE": self.care,
+            "COLLECT": self.collect,
+            "COLLECT_FERTILIZER": self.collect_fertilizer,
+            "SELL": self.sell,
+            "BUY_SEED": self.buy_seed,
+            "BUY_ANIMAL": self.buy_animal,
+            "EXPAND": self.expand,
+            "HIRE": self.hire,
+        }
+
+        handler = handlers.get(task)
+
+        if handler is None:
+            return self.pass_turn()
+
+        return handler(candidate)
+    # -----------------------------------------------------
+    # Pass
+    # -----------------------------------------------------
+
+    def pass_turn(
+        self,
+        actor_id=0,
+    ):
+
+        return {
+            "action": "PASS",
+            "actor_id": actor_id,
+        }
+
+    # -----------------------------------------------------
+    # Build
+    # -----------------------------------------------------
+
+    def build(
+        self,
+        candidate: Any,
+    ):
+
+        if candidate is None:
+
+            return self.pass_turn()
+
+        # ---------------------------------------------
+        # Extract task
+        # ---------------------------------------------
+
+        task = getattr(
+            candidate,
+            "task",
+            None,
+        )
+
+        # ---------------------------------------------
+        # Some implementations store the task type
+        # directly on the candidate.
+        # ---------------------------------------------
+
+        action_type = getattr(
+            candidate,
+            "action_type",
+            None,
+        )
+
+        if action_type is None:
+
+            action_type = getattr(
+                candidate,
+                "task_type",
+                None,
+            )
+
+        if action_type is None and task is not None:
+
+            action_type = getattr(
+                task,
+                "action_type",
+                None,
+            )
+
+        if action_type is None and task is not None:
+
+            action_type = getattr(
+                task,
+                "task_type",
+                None,
+            )
+
+        # ---------------------------------------------
+        # Target
+        # ---------------------------------------------
+
+        target = getattr(
+            candidate,
+            "target",
+            None,
+        )
+
+        if target is None and task is not None:
+
+            target = getattr(
+                task,
+                "target",
+                None,
+            )
+
+        # ---------------------------------------------
+        # Metadata
+        # ---------------------------------------------
+
+        metadata = getattr(
+            candidate,
+            "metadata",
+            None,
+        )
+
+        if metadata is None and task is not None:
+
+            metadata = getattr(
+                task,
+                "metadata",
+                None,
+            )
+
+        if not isinstance(
+            metadata,
+            dict,
+        ):
+
+            metadata = {}
+
+        # ---------------------------------------------
+        # Actor
+        # ---------------------------------------------
+
+        actor_id = getattr(
+            candidate,
+            "worker_id",
+            0,
+        )
+
+        # ---------------------------------------------
+        # Missing action
+        # ---------------------------------------------
+
+        if action_type is None:
+
+            return self.pass_turn(
+                actor_id=actor_id
+            )
+
+        # ---------------------------------------------
+        # Return generic action
+        # ---------------------------------------------
+
+        result = {
+            "action": str(
+                action_type
+            ).upper(),
+
+            "actor_id": actor_id,
+
+            "target": target,
+
+            "metadata": metadata,
+        }
+
+        return result
+
+
+# =========================================================
+# Public Exports
+# =========================================================
+
+__all__ = [
+    "Action",
+    "ActionFactory",
+    "ActionBuilder",
+]
 """
 core/actions.py
 
@@ -155,6 +447,80 @@ from brain.action_candidate import ActionCandidate
 
 
 class ActionBuilder:
+        # =====================================================
+    # Build
+    # =====================================================
+
+    def build(
+        self,
+        candidate: ActionCandidate,
+    ):
+
+        if candidate is None:
+            return self.pass_turn()
+
+        task = str(
+            candidate.task
+        ).upper()
+
+        handlers = {
+            "HARVEST": self.harvest,
+            "PLANT": self.plant,
+            "WATER": self.water,
+            "FERTILIZE": self.fertilize,
+            "FEED": self.feed,
+            "CARE": self.care,
+            "COLLECT": self.collect,
+            "COLLECT_FERTILIZER": self.collect_fertilizer,
+            "SELL": self.sell,
+            "BUY_SEED": self.buy_seed,
+            "BUY_ANIMAL": self.buy_animal,
+            "EXPAND": self.expand,
+            "HIRE": self.hire,
+        }
+
+        handler = handlers.get(task)
+
+        if handler is None:
+            return self.pass_turn()
+
+        return handler(candidate)
+
+    # =====================================================
+    # Pass
+    # =====================================================
+
+    def pass_turn(
+        self,
+        actor_id=0,
+    ):
+
+        return {
+            "action": "PASS",
+            "worker": actor_id,
+            "target": None,
+            "metadata": {},
+        }
+
+        # =====================================================
+    # Helpers
+    # =====================================================
+
+    def _worker(
+        self,
+        candidate: ActionCandidate,
+    ):
+
+        return candidate.worker_id
+
+    def _position(
+        self,
+        candidate: ActionCandidate,
+    ):
+
+        tile = candidate.target
+
+        return tile.x, tile.y
 
     # =====================================================
     # Harvest

@@ -62,10 +62,9 @@ class Scheduler:
             )
 
         return workers
-
-    # =====================================================
-    # Assignment
-    # =====================================================
+# =====================================================
+# # Assignment
+# =====================================================
 
     def assign(
         self,
@@ -73,9 +72,7 @@ class Scheduler:
         tasks: list[Task],
     ) -> list[ActionCandidate]:
 
-        workers = self.workers(state)
-
-        available = workers[:]
+        available = self.workers(state)
 
         assignments = []
 
@@ -90,45 +87,57 @@ class Scheduler:
             if not available:
                 break
 
-            worker = min(
+            # -------------------------------------------------
+            # Positional tasks
+            # -------------------------------------------------
 
-                available,
+            if (
+                task.target is not None
+                and hasattr(task.target, "position")
+            ):
 
-                key=lambda w:
-                Pathfinder.distance(
-                    w.position,
+                worker = min(
+                    available,
+                    key=lambda w:
+                    Pathfinder.distance(
+                        w.position,
+                        task.target.position,
+                    ),
+                )
+
+                distance = Pathfinder.distance(
+                    worker.position,
                     task.target.position,
                 )
 
-            )
+            # -------------------------------------------------
+            # Non-positional tasks
+            # -------------------------------------------------
 
-            distance = Pathfinder.distance(
-                worker.position,
-                task.target.position,
-            )
+            else:
+
+                # SELL, HIRE, EXPAND, etc.
+                # do not require movement.
+                worker = available[0]
+
+                distance = 0
+
+            # -------------------------------------------------
+            # Create candidate
+            # -------------------------------------------------
 
             assignments.append(
-
                 ActionCandidate(
-
                     action=None,
-
                     task=task.task_type,
-
                     target=task.target,
-
                     priority=task.priority,
-
                     estimated_profit=task.expected_profit,
-
                     distance=distance,
-
                     worker_id=worker.worker_id,
-
                     reason="Assigned by Scheduler",
-
+                    metadata=task.metadata,
                 )
-
             )
 
             available.remove(worker)

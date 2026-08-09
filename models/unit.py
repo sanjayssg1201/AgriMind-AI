@@ -6,7 +6,7 @@ Both Farmer and FarmHand inherit from this class.
 """
 
 from dataclasses import dataclass, field
-from typing import dict
+from typing import Dict
 
 
 @dataclass(slots=True)
