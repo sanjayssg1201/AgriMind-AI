@@ -84,17 +84,17 @@ class Scheduler:
 
         for task in tasks:
 
-            if not available:
-                break
-
             # -------------------------------------------------
-            # Positional tasks
+            # Positional tasks require a worker
             # -------------------------------------------------
 
             if (
                 task.target is not None
                 and hasattr(task.target, "position")
             ):
+
+                if not available:
+                    continue
 
                 worker = min(
                     available,
@@ -110,16 +110,17 @@ class Scheduler:
                     task.target.position,
                 )
 
+                worker_id = worker.worker_id
+
+                available.remove(worker)
+
             # -------------------------------------------------
-            # Non-positional tasks
+            # Non-positional tasks do not consume a worker
             # -------------------------------------------------
 
             else:
 
-                # SELL, HIRE, EXPAND, etc.
-                # do not require movement.
-                worker = available[0]
-
+                worker_id = None
                 distance = 0
 
             # -------------------------------------------------
@@ -134,12 +135,10 @@ class Scheduler:
                     priority=task.priority,
                     estimated_profit=task.expected_profit,
                     distance=distance,
-                    worker_id=worker.worker_id,
+                    worker_id=worker_id,
                     reason="Assigned by Scheduler",
                     metadata=task.metadata,
                 )
             )
-
-            available.remove(worker)
 
         return assignments
