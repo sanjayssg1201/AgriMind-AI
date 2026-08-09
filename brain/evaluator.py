@@ -107,11 +107,14 @@ class Evaluator:
     # ======================================================
 
     def _harvest_score(
-        self,
-        crop: Crop,
-    ) -> float:
+    self,
+    tile: Tile,
+) -> float:
 
-        return Heuristic.crop_score(crop) + 50
+        if not tile.is_plant:
+            return -1000
+
+        return Heuristic.crop_score(tile.crop) + 50
 
     def _plant_score(
         self,
