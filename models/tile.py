@@ -155,7 +155,7 @@ class Tile:
             state = self.crop.name
 
         elif self.has_animal:
-            state = self.animal.animal
+            state = self.animal.name
 
         elif self.is_coop:
             state = "EMPTY_COOP"

@@ -73,6 +73,12 @@ class Evaluator:
                 candidate.target
             )
 
+        elif task == "FERTILIZE":
+
+            score = self._fertilize_score(
+                candidate.target
+            )
+
         elif task == "FEED":
 
             score = self._feed_score(
@@ -82,6 +88,16 @@ class Evaluator:
         elif task == "CARE":
 
             score = self._care_score(
+                candidate.target
+            )
+
+        elif task == "COLLECT":
+            score = self._collect_score(
+                candidate.target
+            )
+
+        elif task == "COLLECT_FERTILIZER":
+            score = self._collect_fertilizer_score(
                 candidate.target
             )
 
@@ -98,6 +114,12 @@ class Evaluator:
                 state,
             )
 
+        elif task == "HIRE":
+
+            score = self._hire_score(
+                state,
+            )
+
         candidate.score = score
 
         return candidate
@@ -107,9 +129,9 @@ class Evaluator:
     # ======================================================
 
     def _harvest_score(
-    self,
-    tile: Tile,
-) -> float:
+        self,
+        tile: Tile,
+    ) -> float:
 
         if not tile.is_plant:
             return -1000
@@ -127,9 +149,9 @@ class Evaluator:
         return 25
 
     def _water_score(
-    self,
-    tile: Tile,
-) -> float:
+        self,
+        tile: Tile,
+    ) -> float:
 
         if not tile.is_plant:
             return -1000
@@ -139,27 +161,101 @@ class Evaluator:
 
         return 0
 
+    def _fertilize_score(
+        self,
+        tile: Tile,
+    ) -> float:
+
+        if not tile.is_plant:
+            return -1000
+
+        if tile.crop.is_fertilized:
+            return 0
+
+        return 40
+
     # ======================================================
     # Animals
     # ======================================================
 
     def _feed_score(
         self,
-        animal: Animal,
+        tile: Tile,
     ) -> float:
 
-        return Heuristic.animal_score(animal)
+        if not tile.has_animal:
+            return -1000
+
+        animal = tile.animal
+
+        if not animal.needs_feed:
+            return 0
+
+        score = 40
+
+        if animal.is_starving:
+            score += 40
+
+        score += animal.production_score
+
+        return score
 
     def _care_score(
         self,
-        animal: Animal,
+        tile: Tile,
     ) -> float:
 
-        score = Heuristic.animal_score(animal)
+        if not tile.has_animal:
+            return -1000
+
+        animal = tile.animal
+
+        if not animal.needs_care:
+            return 0
+
+        score = 30
 
         score += animal.pending_care_bonus
 
+        score += animal.production_score
+
         return score
+
+
+
+    def _collect_score(
+        self,
+        tile: Tile,
+    ) -> float:
+
+        if not tile.has_animal:
+            return -1000
+
+        animal = tile.animal
+
+        if not animal.has_product:
+            return 0
+
+        return (
+            animal.yield_units * 30
+            + 35
+        )
+
+
+    def _collect_fertilizer_score(
+        self,
+        tile: Tile,
+    ) -> float:
+
+        if not tile.has_animal:
+            return -1000
+
+        animal = tile.animal
+
+        if not animal.can_collect_fertilizer:
+            return 0
+
+        return 35
 
     # ======================================================
     # Market
@@ -194,4 +290,14 @@ class Evaluator:
         return Heuristic.expansion_score(
             state.money,
             state.empty_tiles,
+        )
+
+    def _hire_score(
+        self,
+        state: GameState,
+    ) -> float:
+
+        return Heuristic.hire_score(
+            state.money,
+            state.current_player.farm.farmhand_count,
         )

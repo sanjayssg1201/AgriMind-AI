@@ -252,7 +252,6 @@ class DecisionEngine:
     # =====================================================
     # Risk Penalty
     # =====================================================
-
     def _risk_penalty(
         self,
         state: GameState,
@@ -261,9 +260,9 @@ class DecisionEngine:
 
         task = candidate.task
 
+        # Crop actions
         if task in (
             "HARVEST",
-            "WATER",
             "FERTILIZE",
         ):
 
@@ -275,11 +274,14 @@ class DecisionEngine:
                     tile.crop
                 )
 
-        if task in (
-            "FEED",
-            "CARE",
-            "COLLECT",
-        ):
+        # Water directly reduces crop risk.
+        # Therefore current crop risk should not
+        # be charged as a penalty to WATER.
+        if task == "WATER":
+            return 0
+
+        # Animal collection
+        if task == "COLLECT":
 
             tile = candidate.target
 
@@ -289,6 +291,7 @@ class DecisionEngine:
                     tile.animal
                 )
 
+        # FEED and CARE directly reduce animal risk.
         return 0
 
     # =====================================================
