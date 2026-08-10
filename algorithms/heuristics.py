@@ -114,7 +114,8 @@ class Heuristic:
             return 0
 
         return (
-            price / average
+            (price - average)
+            / average
         ) * 100
 
     # =====================================================
