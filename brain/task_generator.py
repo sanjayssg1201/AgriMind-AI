@@ -616,6 +616,7 @@ class TaskGenerator:
         tasks = []
 
         farm = state.current_player.farm
+        seeds = state.current_player.inventory.seeds
 
         for row in farm.tiles:
 
@@ -624,16 +625,12 @@ class TaskGenerator:
                 if not tile.is_empty:
                     continue
 
-                for crop, quantity in (
-                    state.current_player.inventory
-                    .seeds.items()
-                ):
+                for crop, quantity in seeds.items():
 
                     if quantity <= 0:
                         continue
 
                     tasks.append(
-
                         Task(
                             task_type="PLANT",
                             target=tile,
@@ -644,11 +641,6 @@ class TaskGenerator:
                                 "crop": crop,
                             },
                         )
-
                     )
 
-                    # Only generate one planting task per tile
-                    break
-
         return tasks
-

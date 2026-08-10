@@ -63,7 +63,7 @@ class Scheduler:
 
         return workers
 # =====================================================
-# # Assignment
+# Assignment
 # =====================================================
 
     def assign(
@@ -72,13 +72,18 @@ class Scheduler:
         tasks: list[Task],
     ) -> list[ActionCandidate]:
 
-        available = self.workers(state)
-
         assignments = []
+
+        # available workers
+        available = self.workers(state)
 
         tasks = sorted(
             tasks,
-            key=lambda t: t.priority,
+            key=lambda t: (
+                t.priority,
+                t.expected_profit,
+                t.estimated_reward,
+            ),
             reverse=True,
         )
 
@@ -112,10 +117,14 @@ class Scheduler:
 
                 worker_id = worker.worker_id
 
-                available.remove(worker)
+                # IMPORTANT:
+                # Do NOT remove the worker here.
+                #
+                # Each ActionCandidate is an alternative
+                # action, not a simultaneous assignment.
 
             # -------------------------------------------------
-            # Non-positional tasks do not consume a worker
+            # Non-positional tasks
             # -------------------------------------------------
 
             else:

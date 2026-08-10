@@ -64,7 +64,8 @@ class Evaluator:
         elif task == "PLANT":
 
             score = self._plant_score(
-                candidate.target
+                state,
+                candidate,
             )
 
         elif task == "WATER":
@@ -140,13 +141,36 @@ class Evaluator:
 
     def _plant_score(
         self,
-        tile: Tile,
+        state: GameState,
+        candidate: ActionCandidate,
     ) -> float:
+
+        tile = candidate.target
 
         if not tile.is_empty:
             return -1000
 
-        return 25
+        crop = (
+            candidate.metadata.get("crop")
+            if candidate.metadata
+            else None
+        )
+
+        if not crop:
+            return 0
+
+        price = state.market.price(crop)
+
+        if price <= 0:
+            return 0
+
+        # Use market price as the relative crop-value signal.
+        #
+        # Normalize against a reasonable reference rather
+        # than treating raw prices as final scores.
+        market_value = min(price / 100, 3.0) * 25
+
+        return 25 + market_value
 
     def _water_score(
         self,
