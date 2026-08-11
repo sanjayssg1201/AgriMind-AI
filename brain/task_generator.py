@@ -13,11 +13,15 @@ Filter Tasks
 Scheduler
 """
 
+from typer.cli import state
+
 from brain.task import Task
 
 from algorithms.heuristics import Heuristic
 
 from models.game_state import GameState
+
+from core.constants import ANIMAL_CONFIG
 
 
 class TaskGenerator:
@@ -497,8 +501,64 @@ class TaskGenerator:
 
                     )
 
-        return tasks
+        # =================================================
+        # Buy Animal
+        # =================================================
 
+        farm = state.current_player.farm
+
+        animal_structures = {
+            "GOOSE": "COOP",
+            "COW": "PASTURE",
+            "SHEEP": "PASTURE",
+        }
+
+        for animal, config in ANIMAL_CONFIG.items():
+
+            cost = config["cost"]
+
+            if state.money < cost:
+                continue
+
+            product = config["product"]
+
+            price = state.market.price(product)
+
+            if price <= 0:
+                continue
+
+            # determine if there's an empty coop/pasture for this animal
+            has_empty_structure = any(
+                (
+                    tile.is_coop
+                    if animal_structures[animal] == "COOP"
+                    else tile.is_pasture
+                )
+                and not tile.has_animal
+                for row in farm.tiles
+                for tile in row
+            )
+
+            if not has_empty_structure:
+                continue
+
+            tasks.append(
+                Task(
+                    task_type="BUY_ANIMAL",
+                    target=animal,
+                    priority=35,
+                    estimated_reward=0,
+                    estimated_cost=cost,
+                    metadata={
+                        "animal": animal,
+                        "cost": cost,
+                        "product": product,
+                        "price": price,
+                    },
+                )
+            )
+
+        return tasks
 
     # =====================================================
     # Market Tasks
