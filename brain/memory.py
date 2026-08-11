@@ -9,6 +9,7 @@ directly by the Kaggriculture observation.
 
 from dataclasses import dataclass, field
 from collections import deque
+
 from typing import Any
 
 from models.game_state import GameState
@@ -199,6 +200,23 @@ class BrainMemory:
             return 0
 
         return sum(history) / len(history)
+
+
+    def historical_average_price(
+        self,
+        product: str,
+    ) -> float:
+        history = self.market_price_history.get(product)
+
+        if history is None or len(history) < 2:
+            return 0
+
+        previous_prices = list(history)[:-1]
+
+        if not previous_prices:
+            return 0
+
+        return sum(previous_prices) / len(previous_prices)
 
     def opponent_gaining_money(self) -> bool:
 

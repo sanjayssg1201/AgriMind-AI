@@ -290,17 +290,27 @@ class Evaluator:
         state: GameState,
         product: str,
     ) -> float:
-
         current = state.market.price(product)
 
-        average = self.memory.average_price(
-            product
-        )
+        average = self.memory.historical_average_price(product)
 
-        return Heuristic.market_score(
-            current,
-            average,
-        )
+        market_score = Heuristic.market_score(current, average)
+
+        trend = self.memory.price_trend(product)
+
+        # No historical baseline yet.
+        if average <= 0:
+            return 0
+
+        # Falling prices make selling more attractive.
+        if trend < 0:
+            market_score += 10
+
+        # Rising prices make immediate selling less attractive.
+        elif trend > 0:
+            market_score -= 10
+
+        return market_score
 
     # ======================================================
     # Expansion

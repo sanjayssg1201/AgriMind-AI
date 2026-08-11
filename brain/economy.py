@@ -124,10 +124,12 @@ class EconomyManager:
         current_price: float,
     ) -> bool:
 
-        average = self.memory.average_price(product)
+        average = self.memory.historical_average_price(
+            product
+        )
 
         if average == 0:
-            return True
+            return False
 
         return current_price >= average
 
