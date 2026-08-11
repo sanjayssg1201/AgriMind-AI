@@ -109,6 +109,13 @@ class Evaluator:
                 candidate.target,
             )
 
+        elif task == "BUY_SEED":
+
+            score = self._buy_seed_score(
+                state,
+                candidate,
+            )
+
         elif task == "EXPAND":
 
             score = self._expand_score(
@@ -311,6 +318,100 @@ class Evaluator:
             market_score -= 10
 
         return market_score
+
+
+    # ======================================================
+    # Buy Seed
+    # ======================================================
+
+    def _buy_seed_score(
+        self,
+        state: GameState,
+        candidate: ActionCandidate,
+    ) -> float:
+
+        crop = candidate.target
+
+        if not crop:
+            return -1000
+
+        cost = candidate.metadata.get(
+            "cost",
+            0,
+        )
+
+        if cost <= 0:
+            return -1000
+
+        if state.money < cost:
+            return -1000
+
+        if state.empty_tiles <= 0:
+            return -1000
+
+        crop_data = {
+            "WHEAT": {
+                "first_yield_day": 2,
+                "max_yield": 6,
+            },
+            "CARROT": {
+                "first_yield_day": 2,
+                "max_yield": 4,
+            },
+            "TOMATO": {
+                "first_yield_day": 8,
+                "max_yield": 4,
+            },
+            "STRAWBERRY": {
+                "first_yield_day": 10,
+                "max_yield": 4,
+            },
+            "MELON": {
+                "first_yield_day": 10,
+                "max_yield": 6,
+            },
+        }
+
+        data = crop_data.get(crop)
+
+        if data is None:
+            return -1000
+
+        price = state.market.price(crop)
+
+        if price <= 0:
+            return 0
+
+        days_remaining = 30 - state.day
+
+        if days_remaining < data["first_yield_day"]:
+            return -100
+
+        expected_yield = data["max_yield"]
+
+        gross_value = (
+            expected_yield * price
+        )
+
+        expected_profit = (
+            gross_value - cost
+        )
+
+        # Normalize the economic value so it does not
+        # overwhelm the rest of the decision system.
+        score = min(
+            expected_profit / 20,
+            50,
+        )
+
+        # Earlier-producing crops receive a small
+        # time-efficiency preference.
+        time_bonus = max(
+            0,
+            10 - data["first_yield_day"],
+        )
+
+        return score + time_bonus
 
     # ======================================================
     # Expansion

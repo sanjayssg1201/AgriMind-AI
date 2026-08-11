@@ -71,6 +71,9 @@ class TaskGenerator:
         tasks.extend(
             self._market_tasks(state)
         )
+        tasks.extend(
+            self._buy_seed_tasks(state)
+)
 
         # -----------------------------------------------
         # Expansion
@@ -536,6 +539,70 @@ class TaskGenerator:
                     },
                 )
 
+            )
+
+        return tasks
+
+    # =====================================================
+    # Buy Seed Tasks
+    # =====================================================
+
+    def _buy_seed_tasks(
+        self,
+        state: GameState,
+    ) -> list[Task]:
+
+        tasks = []
+
+        # No reason to buy seeds if there is
+        # nowhere to plant them.
+        if state.empty_tiles <= 0:
+            return tasks
+
+        # Keep enough cash for basic operations.
+        reserve = 300
+
+        if state.money <= reserve:
+            return tasks
+
+        # Kaggriculture seed costs.
+        seed_costs = {
+            "WHEAT": 10,
+            "CARROT": 20,
+            "TOMATO": 50,
+            "STRAWBERRY": 100,
+            "MELON": 80,
+        }
+
+        for crop, cost in seed_costs.items():
+            price = state.market.price(crop)
+
+            if price <= 0:
+                continue
+
+            current_seeds = state.seeds(crop)
+
+            # Already have enough seeds for the currently
+            # available planting capacity.
+            if current_seeds >= state.empty_tiles:
+                continue
+
+            if state.money < reserve + cost:
+                continue
+
+            tasks.append(
+                Task(
+                    task_type="BUY_SEED",
+                    target=crop,
+                    priority=35,
+                    estimated_reward=0,
+                    estimated_cost=cost,
+                    metadata={
+                        "crop": crop,
+                        "quantity": 1,
+                        "cost": cost,
+                    },
+                )
             )
 
         return tasks
