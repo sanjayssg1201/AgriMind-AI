@@ -9,6 +9,7 @@ from typing import Any
 
 from algorithms.heuristics import Heuristic
 from brain.memory import BrainMemory
+from core.constants import ANIMAL_CONFIG
 from models.game_state import GameState
 from models.tile import Tile
 from models.crop import Crop
@@ -112,6 +113,12 @@ class Evaluator:
         elif task == "BUY_SEED":
 
             score = self._buy_seed_score(
+                state,
+                candidate,
+            )
+        elif task == "BUY_ANIMAL":
+
+            score = self._buy_animal_score(
                 state,
                 candidate,
             )
@@ -412,6 +419,78 @@ class Evaluator:
         )
 
         return score + time_bonus
+
+    def _buy_animal_score(
+        self,
+        state: GameState,
+        candidate: ActionCandidate,
+    ) -> float:
+
+        animal = candidate.target
+
+        config = ANIMAL_CONFIG.get(animal)
+
+        if config is None:
+            return -1000
+
+        cost = config["cost"]
+        product = config["product"]
+
+        if state.money < cost:
+            return -1000
+
+        price = state.market.price(product)
+
+        if price <= 0:
+            return -1000
+
+        first_yield_day = config["first_yield_day"]
+        interval = config["interval"]
+
+        days_remaining = max(
+            0,
+            state.turns_remaining // 24,
+        )
+
+        days_until_first_yield = first_yield_day
+
+        if days_remaining <= days_until_first_yield:
+            return 0
+
+        production_window = (
+            days_remaining
+            - days_until_first_yield
+        )
+
+        if interval <= 0:
+            return 0
+
+        production_cycles = (
+            production_window // interval
+        ) + 1
+
+        # Conservative assumption:
+        # 1 base unit + 50% expected care bonus.
+        expected_units = (
+            production_cycles * 1.5
+        )
+
+        gross_revenue = (
+            expected_units * price
+        )
+
+        net_profit = (
+            gross_revenue - cost
+        )
+
+        roi = (
+            net_profit / cost
+        )
+
+        return max(
+            0,
+            roi * 100,
+        )
 
     # ======================================================
     # Expansion
