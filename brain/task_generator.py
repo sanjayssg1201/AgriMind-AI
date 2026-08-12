@@ -558,6 +558,53 @@ class TaskGenerator:
                 )
             )
 
+        # =================================================
+        # Place Purchased Animals
+        # =================================================
+
+        animal_structures = {
+            "GOOSE": "COOP",
+            "COW": "PASTURE",
+            "SHEEP": "PASTURE",
+        }
+
+        inventory = state.current_player.inventory.shed
+
+        for animal, structure in animal_structures.items():
+
+            if inventory.get(animal, 0) <= 0:
+                continue
+
+            for row in farm.tiles:
+
+                for tile in row:
+
+                    is_matching_structure = (
+                        tile.is_coop
+                        if structure == "COOP"
+                        else tile.is_pasture
+                    )
+
+                    if not is_matching_structure:
+                        continue
+
+                    if tile.has_animal:
+                        continue
+
+                    tasks.append(
+                        Task(
+                            task_type="PLACE",
+                            target=tile,
+                            priority=95,
+                            estimated_reward=40,
+                            estimated_cost=0,
+                            metadata={
+                                "animal": animal,
+                                "structure": structure,
+                            },
+                        )
+                    )
+
         return tasks
 
     # =====================================================
@@ -568,38 +615,27 @@ class TaskGenerator:
         self,
         state: GameState,
     ) -> list[Task]:
-
         tasks = []
 
         inventory = state.current_player.inventory.shed
 
+        # Existing SELL logic
         for product, quantity in inventory.items():
 
             if quantity <= 0:
                 continue
 
-            price = state.market.price(product)
+            # existing SELL task generation...
 
-            if price <= 0:
-                continue
+        # Existing BUY_SEED logic
+        tasks.extend(
+            self._buy_seed_tasks(state)
+        )
 
-            tasks.append(
-
-                Task(
-                    task_type="SELL",
-                    target=product,
-                    priority=50,
-                    estimated_reward=(
-                        quantity * price
-                    ),
-                    metadata={
-                        "product": product,
-                        "quantity": quantity,
-                        "price": price,
-                    },
-                )
-
-            )
+        # BUY_PRODUCT intelligence
+        tasks.extend(
+            self._buy_product_tasks(state)
+        )
 
         return tasks
 
@@ -771,3 +807,195 @@ class TaskGenerator:
                     )
 
         return tasks
+
+
+# =====================================================
+# Buy Product Tasks
+# =====================================================
+
+def _buy_product_tasks(
+    self,
+    state: GameState,
+) -> list[Task]:
+
+    tasks = []
+
+    # Kaggriculture only permits BUY_PRODUCT
+    # for these two products.
+    buyable_products = (
+        "WHEAT",
+        "FERTILIZER",
+    )
+
+    inventory = state.current_player.inventory.shed
+
+    # -------------------------------------------------
+    # Shed capacity
+    # -------------------------------------------------
+
+    shed_capacity = getattr(
+        state,
+        "shed_capacity",
+        100,
+    )
+
+    current_shed_quantity = sum(
+        max(0, quantity)
+        for quantity in inventory.values()
+    )
+
+    available_capacity = max(
+        0,
+        shed_capacity - current_shed_quantity,
+    )
+
+    if available_capacity <= 0:
+        return tasks
+
+    # -------------------------------------------------
+    # Cash reserve
+    # -------------------------------------------------
+
+    # Do not spend the farm's entire cash balance.
+    reserve = 300
+
+    if state.money <= reserve:
+        return tasks
+
+    # -------------------------------------------------
+    # WHEAT
+    # -------------------------------------------------
+
+    wheat_price = state.market.price("WHEAT")
+
+    if wheat_price > 0:
+
+        wheat_quantity = inventory.get(
+            "WHEAT",
+            0,
+        )
+
+        # WHEAT has downstream value when a shop that
+        # consumes wheat is currently unlocked.
+        wheat_shops = {
+            "BAKERY",
+            "PIZZA_SHOP",
+            "BRUNCH_SPOT",
+            "ICE_CREAM_SHOP",
+            "FARMERS_MARKET",
+        }
+
+        unlocked_shops = getattr(
+            state.town,
+            "unlocked_shops",
+            [],
+        )
+
+        wheat_is_needed = any(
+            shop in wheat_shops
+            for shop in unlocked_shops
+        )
+
+        # Do not continuously accumulate wheat.
+        # One unit is enough to create a candidate;
+        # subsequent decisions can buy again later.
+        if (
+            wheat_is_needed
+            and wheat_quantity < 1
+            and state.money >= reserve + wheat_price
+            and available_capacity >= 1
+        ):
+
+            tasks.append(
+                Task(
+                    task_type="BUY_PRODUCT",
+                    target="WHEAT",
+                    priority=25,
+                    estimated_reward=0,
+                    estimated_cost=wheat_price,
+                    metadata={
+                        "product": "WHEAT",
+                        "quantity": 1,
+                        "price": wheat_price,
+                        "reason": "DOWNSTREAM_SHOP_DEMAND",
+                    },
+                )
+            )
+
+    # -------------------------------------------------
+    # FERTILIZER
+    # -------------------------------------------------
+
+    fertilizer_price = state.market.price(
+        "FERTILIZER"
+    )
+
+    if fertilizer_price > 0:
+
+        fertilizer_quantity = inventory.get(
+            "FERTILIZER",
+            0,
+        )
+
+        # Count crops that could actually benefit
+        # from fertilizer.
+        fertilizer_demand = 0
+
+        farm = state.current_player.farm
+
+        for row in farm.tiles:
+
+            for tile in row:
+
+                if not tile.is_plant:
+                    continue
+
+                crop = tile.crop
+
+                if crop is None:
+                    continue
+
+                if crop.is_fertilized:
+                    continue
+
+                if crop.remaining_life <= 2:
+                    continue
+
+                fertilizer_demand += 1
+
+        # We already have enough fertilizer for
+        # the currently useful demand.
+        if fertilizer_quantity >= fertilizer_demand:
+            return tasks
+
+        # Only buy fertilizer if it has an actual
+        # downstream use.
+        if fertilizer_demand <= 0:
+            return tasks
+
+        # Purchase only one unit per generated task.
+        # This prevents the agent from blindly filling
+        # the shed with fertilizer.
+        if (
+            state.money >= reserve + fertilizer_price
+            and available_capacity >= 1
+        ):
+
+            tasks.append(
+                Task(
+                    task_type="BUY_PRODUCT",
+                    target="FERTILIZER",
+                    priority=40,
+                    estimated_reward=0,
+                    estimated_cost=fertilizer_price,
+                    metadata={
+                        "product": "FERTILIZER",
+                        "quantity": 1,
+                        "price": fertilizer_price,
+                        "demand": fertilizer_demand,
+                        "reason": "CROP_DEMAND",
+                    },
+                )
+            )
+
+    return tasks

@@ -10,6 +10,7 @@ from typing import Any
 from algorithms.heuristics import Heuristic
 from brain.memory import BrainMemory
 from core.constants import ANIMAL_CONFIG
+from core.constants import BUY_PRODUCT_CONFIG
 from models.game_state import GameState
 from models.tile import Tile
 from models.crop import Crop
@@ -122,6 +123,19 @@ class Evaluator:
                 state,
                 candidate,
             )
+        elif task == "BUY_PRODUCT":
+
+           score = self._buy_product_score(
+        state,
+        candidate,
+    )
+
+        elif task == "PLACE":
+
+            score = self._place_score(
+        state,
+        candidate,
+    )
 
         elif task == "EXPAND":
 
@@ -133,6 +147,13 @@ class Evaluator:
 
             score = self._hire_score(
                 state,
+            )
+
+        elif task == "BUY_PRODUCT":
+
+            score = self._buy_product_score(
+        state,
+        candidate,
             )
 
         candidate.score = score
@@ -425,12 +446,26 @@ class Evaluator:
         state: GameState,
         candidate: ActionCandidate,
     ) -> float:
-
         animal = candidate.target
 
         config = ANIMAL_CONFIG.get(animal)
 
         if config is None:
+            return -1000
+
+        owned_animals = state.current_player.inventory.shed
+
+        # Never buy another copy while this animal is waiting to be placed.
+        if owned_animals.get(animal, 0) > 0:
+            return -1000
+
+        # Do not purchase another animal while any purchased
+        # animal is still waiting to be placed.
+        if any(
+            quantity > 0
+            for item, quantity in owned_animals.items()
+            if item in ANIMAL_CONFIG
+        ):
             return -1000
 
         cost = config["cost"]
@@ -491,6 +526,373 @@ class Evaluator:
             0,
             roi * 100,
         )
+    def _buy_product_score(
+        self,
+        state: GameState,
+        candidate: ActionCandidate,
+    ) -> float:
+
+        product = candidate.target
+
+        # =================================================
+        # 1. Product must actually be buyable
+        # =================================================
+
+        buyable_products = {
+            "WHEAT",
+            "FERTILIZER",
+        }
+
+        if product not in buyable_products:
+            return -1000
+
+        # =================================================
+        # 2. Current price
+        # =================================================
+
+        price = state.market.price(product)
+
+        if price <= 0:
+            return -1000
+
+        # =================================================
+        # 3. Required cash
+        # =================================================
+
+        metadata = candidate.metadata or {}
+
+        quantity = int(
+            metadata.get(
+                "quantity",
+                1,
+            )
+        )
+
+        if quantity <= 0:
+            return -1000
+
+        total_cost = (
+            price * quantity
+        )
+
+        # Maintain cash reserve.
+        reserve = 300
+
+        if state.money < total_cost + reserve:
+            return -1000
+
+        # =================================================
+        # 4. Shed capacity
+        # =================================================
+
+        inventory = (
+            state.current_player
+            .inventory
+            .shed
+        )
+
+        shed_capacity = getattr(
+            state,
+            "shed_capacity",
+            100,
+        )
+
+        used_capacity = sum(
+            max(0, value)
+            for value in inventory.values()
+        )
+
+        if (
+            used_capacity + quantity
+            > shed_capacity
+        ):
+            return -1000
+
+        # =================================================
+        # 5. Do not buy something already available
+        # =================================================
+
+        current_quantity = inventory.get(
+            product,
+            0,
+        )
+
+        if product == "FERTILIZER":
+
+            farm = state.current_player.farm
+
+            fertilizer_demand = 0
+
+            for row in farm.tiles:
+
+                for tile in row:
+
+                    if not tile.is_plant:
+                        continue
+
+                    crop = tile.crop
+
+                    if crop is None:
+                        continue
+
+                    if crop.is_fertilized:
+                        continue
+
+                    if crop.remaining_life <= 2:
+                        continue
+
+                    fertilizer_demand += 1
+
+            # Existing inventory already covers
+            # all immediate demand.
+            if current_quantity >= fertilizer_demand:
+                return 0
+
+            needed_units = (
+                fertilizer_demand
+                - current_quantity
+            )
+
+        else:
+
+            # =================================================
+            # WHEAT downstream demand
+            # =================================================
+
+            wheat_shops = {
+                "BAKERY",
+                "PIZZA_SHOP",
+                "BRUNCH_SPOT",
+                "ICE_CREAM_SHOP",
+                "FARMERS_MARKET",
+            }
+
+            unlocked_shops = getattr(
+                state.town,
+                "unlocked_shops",
+                [],
+            )
+
+            wheat_demand = sum(
+                1
+                for shop in unlocked_shops
+                if shop in wheat_shops
+            )
+
+            if wheat_demand <= 0:
+                return 0
+
+            if current_quantity >= wheat_demand:
+                return 0
+
+            needed_units = (
+                wheat_demand
+                - current_quantity
+            )
+
+        # =================================================
+        # 6. Actual need
+        # =================================================
+
+        if needed_units <= 0:
+            return 0
+
+        if current_quantity >= needed_units:
+            return 0
+
+        # =================================================
+        # 7. Time horizon
+        # =================================================
+
+        days_remaining = max(
+            0,
+            state.turns_remaining // 24,
+        )
+
+        if days_remaining <= 0:
+            return 0
+
+        # =================================================
+        # 8. Downstream value
+        # =================================================
+
+        if product == "FERTILIZER":
+
+            # Fertilizer increases crop production.
+            #
+            # The environment gives fertilized crops
+            # +2 yield instead of +1 on a production day.
+            #
+            # Use a conservative minimum value.
+            downstream_value = 2 * 25
+
+            # Earlier crops provide more opportunity
+            # to exploit the fertilizer bonus.
+            if days_remaining >= 7:
+                downstream_value += 15
+
+        elif product == "WHEAT":
+
+            # Wheat has value primarily through shops
+            # and eventual resale.
+            #
+            # Do not treat low market price by itself
+            # as sufficient justification.
+            unlocked_shops = getattr(
+                state.town,
+                "unlocked_shops",
+                [],
+            )
+
+            wheat_shop_count = sum(
+                1
+                for shop in unlocked_shops
+                if shop in {
+                    "BAKERY",
+                    "PIZZA_SHOP",
+                    "BRUNCH_SPOT",
+                    "ICE_CREAM_SHOP",
+                    "FARMERS_MARKET",
+                }
+            )
+
+            if wheat_shop_count <= 0:
+                return 0
+
+            downstream_value = (
+                wheat_shop_count * 30
+            )
+
+            # Longer horizon makes wheat more useful.
+            if days_remaining >= 7:
+                downstream_value += 10
+
+        else:
+
+            return -1000
+
+        # =================================================
+        # 9. Must actually create economic value
+        # =================================================
+
+        net_value = (
+            downstream_value
+            - total_cost
+        )
+
+        if net_value <= 0:
+            return 0
+
+        # =================================================
+        # 10. Price discipline
+        # =================================================
+
+        # Never buy merely because the product is cheap.
+        #
+        # The task must have downstream demand AND
+        # produce positive expected value.
+        #
+        # We use the product's base price as a reference
+        # rather than assuming a cheap price automatically
+        # means "BUY".
+
+        base_prices = {
+            "WHEAT": 25,
+            "FERTILIZER": 100,
+        }
+
+        base_price = base_prices.get(
+            product,
+            price,
+        )
+
+        if base_price <= 0:
+            return 0
+
+        # Penalize unusually expensive purchases.
+        price_ratio = (
+            price / base_price
+        )
+
+        if price_ratio > 2.0:
+            return 0
+
+        # =================================================
+        # 11. Final normalized score
+        # =================================================
+
+        score = (
+            net_value / max(
+                1,
+                total_cost,
+            )
+        ) * 100
+
+        # Demand strength bonus.
+        demand_bonus = min(
+            needed_units * 5,
+            20,
+        )
+
+        # Time bonus.
+        time_bonus = min(
+            days_remaining,
+            10,
+        )
+
+        # Price efficiency bonus.
+        price_bonus = max(
+            0,
+            (2.0 - price_ratio) * 5,
+        )
+
+        return max(
+            0,
+            score
+            + demand_bonus
+            + time_bonus
+            + price_bonus,
+        )
+
+    def _place_score(
+        self,
+        state: GameState,
+        candidate: ActionCandidate,
+    ) -> float:
+        tile = candidate.target
+
+        if tile is None:
+            return -1000
+
+        if tile.has_animal:
+            return -1000
+
+        animal = None
+
+        if candidate.metadata:
+            animal = candidate.metadata.get("animal")
+
+        if animal is None:
+            return -1000
+
+        structure_map = {
+            "GOOSE": "COOP",
+            "COW": "PASTURE",
+            "SHEEP": "PASTURE",
+        }
+
+        required_structure = structure_map.get(animal)
+
+        if required_structure is None:
+            return -1000
+
+        if required_structure == "COOP" and not tile.is_coop:
+            return -1000
+
+        if required_structure == "PASTURE" and not tile.is_pasture:
+            return -1000
+
+        return 95
 
     # ======================================================
     # Expansion
