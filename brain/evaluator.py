@@ -325,384 +325,236 @@ class Evaluator:
         state: GameState,
         product: str,
     ) -> float:
-        current = state.market.price(product)
 
-        average = self.memory.historical_average_price(product)
+        # =====================================================
+        # 1. Validate product
+        # =====================================================
 
-        market_score = Heuristic.market_score(current, average)
+        if not product:
+            return -1000
+
+        inventory = state.current_player.inventory
+
+        quantity = inventory.item_count(product)
+
+        # We cannot sell something that is not in the shed.
+        if quantity <= 0:
+            return -1000
+
+        # =====================================================
+        # 2. Validate market price
+        # =====================================================
+
+        current_price = state.market.price(product)
+
+        if current_price <= 0:
+            return -1000
+
+        # Fertilizer is not a normal sellable product in
+        # Kaggriculture.
+        if product == "FERTILIZER":
+            return -1000
+
+        # =====================================================
+        # 3. Historical market valuation
+        # =====================================================
+
+        historical_average = (
+            self.memory.historical_average_price(product)
+        )
 
         trend = self.memory.price_trend(product)
 
-        # No historical baseline yet.
-        if average <= 0:
+        score = 0.0
+
+        if historical_average > 0:
+
+            premium_ratio = (
+                current_price - historical_average
+            ) / historical_average
+
+            # -------------------------------------------------
+            # Strongly above historical value
+            # -------------------------------------------------
+
+            if premium_ratio >= 0.25:
+                score += 35
+
+            # -------------------------------------------------
+            # Moderately above historical value
+            # -------------------------------------------------
+
+            elif premium_ratio >= 0.10:
+                score += 20
+
+            # -------------------------------------------------
+            # Approximately fair value
+            # -------------------------------------------------
+
+            elif premium_ratio >= -0.10:
+                score += 5
+
+            # -------------------------------------------------
+            # Moderately undervalued
+            # -------------------------------------------------
+
+            elif premium_ratio >= -0.25:
+                score -= 15
+
+            # -------------------------------------------------
+            # Strongly undervalued
+            # -------------------------------------------------
+
+            else:
+                score -= 30
+
+        # No historical data means we should not aggressively
+        # sell merely because a price exists.
+        else:
+            score += 0
+
+        # =====================================================
+        # 4. Price trend
+        # =====================================================
+
+        if historical_average > 0:
+
+            # Rising price:
+            # wait unless the current price is already
+            # significantly attractive.
+            if trend > 0:
+
+                if current_price >= historical_average * 1.15:
+                    score += 5
+                else:
+                    score -= 5
+
+            # Falling price:
+            # selling is more attractive if the current price
+            # is still above historical value.
+            elif trend < 0:
+
+                if current_price >= historical_average:
+                    score += 8
+                else:
+                    score -= 5
+
+        # =====================================================
+        # 5. Cash pressure
+        # =====================================================
+
+        money = state.money
+
+        if money < 300:
+            score += 25
+
+        elif money < 500:
+            score += 15
+
+        elif money < 1000:
+            score += 5
+
+        # =====================================================
+        # 6. Shed pressure
+        # =====================================================
+
+        shed_used = inventory.total_items
+
+        # Kaggriculture shed capacity = 100.
+        shed_utilization = shed_used / 100
+
+        if shed_utilization >= 0.90:
+            score += 20
+
+        elif shed_utilization >= 0.75:
+            score += 10
+
+        elif shed_utilization >= 0.50:
+            score += 3
+
+        # =====================================================
+        # 7. Time horizon
+        # =====================================================
+
+        turns_remaining = getattr(
+            state,
+            "turns_remaining",
+            0,
+        )
+
+        days_remaining = (
+            max(0, turns_remaining) // 24
+        )
+
+        # Near the end of the game, realized cash is
+        # more valuable than waiting for another cycle.
+        if days_remaining <= 2:
+            score += 25
+
+        elif days_remaining <= 5:
+            score += 10
+
+        # =====================================================
+        # 8. Inventory quantity
+        # =====================================================
+
+        # Selling one unit while retaining inventory is safer.
+        if quantity >= 5:
+            score += 10
+
+        elif quantity >= 3:
+            score += 5
+
+        elif quantity == 1:
+            score -= 5
+
+        # =====================================================
+        # 9. Final threshold
+        # =====================================================
+
+        # A negative score means there is no sufficiently
+        # strong economic reason to sell.
+        if score < 0:
             return 0
 
-        # Falling prices make selling more attractive.
-        if trend < 0:
-            market_score += 10
-
-        # Rising prices make immediate selling less attractive.
-        elif trend > 0:
-            market_score -= 10
-
-        return market_score
+        return score
 
 
     # ======================================================
     # Buy Seed
     # ======================================================
 
-    def _buy_seed_score(
-        self,
-        state: GameState,
-        candidate: ActionCandidate,
-    ) -> float:
-
-        crop = candidate.target
-
-        if not crop:
-            return -1000
-
-        cost = candidate.metadata.get(
-            "cost",
-            0,
-        )
-
-        if cost <= 0:
-            return -1000
-
-        if state.money < cost:
-            return -1000
-
-        if state.empty_tiles <= 0:
-            return -1000
-
-        crop_data = {
-            "WHEAT": {
-                "first_yield_day": 2,
-                "max_yield": 6,
-            },
-            "CARROT": {
-                "first_yield_day": 2,
-                "max_yield": 4,
-            },
-            "TOMATO": {
-                "first_yield_day": 8,
-                "max_yield": 4,
-            },
-            "STRAWBERRY": {
-                "first_yield_day": 10,
-                "max_yield": 4,
-            },
-            "MELON": {
-                "first_yield_day": 10,
-                "max_yield": 6,
-            },
-        }
-
-        data = crop_data.get(crop)
-
-        if data is None:
-            return -1000
-
-        price = state.market.price(crop)
-
-        if price <= 0:
-            return 0
-
-        days_remaining = 30 - state.day
-
-        if days_remaining < data["first_yield_day"]:
-            return -100
-
-        expected_yield = data["max_yield"]
-
-        gross_value = (
-            expected_yield * price
-        )
-
-        expected_profit = (
-            gross_value - cost
-        )
-
-        # Normalize the economic value so it does not
-        # overwhelm the rest of the decision system.
-        score = min(
-            expected_profit / 20,
-            50,
-        )
-
-        # Earlier-producing crops receive a small
-        # time-efficiency preference.
-        time_bonus = max(
-            0,
-            10 - data["first_yield_day"],
-        )
-
-        return score + time_bonus
-
-    def _buy_animal_score(
-        self,
-        state: GameState,
-        candidate: ActionCandidate,
-    ) -> float:
-        animal = candidate.target
-
-        config = ANIMAL_CONFIG.get(animal)
-
-        if config is None:
-            return -1000
-
-        owned_animals = state.current_player.inventory.shed
-
-        # Never buy another copy while this animal is waiting to be placed.
-        if owned_animals.get(animal, 0) > 0:
-            return -1000
-
-        # Do not purchase another animal while any purchased
-        # animal is still waiting to be placed.
-        if any(
-            quantity > 0
-            for item, quantity in owned_animals.items()
-            if item in ANIMAL_CONFIG
-        ):
-            return -1000
-
-        cost = config["cost"]
-        product = config["product"]
-
-        if state.money < cost:
-            return -1000
-
-        price = state.market.price(product)
-
-        if price <= 0:
-            return -1000
-
-        first_yield_day = config["first_yield_day"]
-        interval = config["interval"]
-
-        days_remaining = max(
-            0,
-            state.turns_remaining // 24,
-        )
-
-        days_until_first_yield = first_yield_day
-
-        if days_remaining <= days_until_first_yield:
-            return 0
-
-        production_window = (
-            days_remaining
-            - days_until_first_yield
-        )
-
-        if interval <= 0:
-            return 0
-
-        production_cycles = (
-            production_window // interval
-        ) + 1
-
-        # Conservative assumption:
-        # 1 base unit + 50% expected care bonus.
-        expected_units = (
-            production_cycles * 1.5
-        )
-
-        gross_revenue = (
-            expected_units * price
-        )
-
-        net_profit = (
-            gross_revenue - cost
-        )
-
-        roi = (
-            net_profit / cost
-        )
-
-        return max(
-            0,
-            roi * 100,
-        )
     def _buy_product_score(
         self,
         state: GameState,
         candidate: ActionCandidate,
     ) -> float:
-
         product = candidate.target
 
-        # =================================================
-        # 1. Product must actually be buyable
-        # =================================================
-
-        buyable_products = {
-            "WHEAT",
-            "FERTILIZER",
-        }
-
-        if product not in buyable_products:
+        if product not in BUY_PRODUCT_CONFIG:
             return -1000
 
-        # =================================================
-        # 2. Current price
-        # =================================================
+        config = BUY_PRODUCT_CONFIG[product]
+
+        inventory = state.current_player.inventory
+
+        current_stock = inventory.item_count(product)
+
+        if current_stock >= config["max_useful_stock"]:
+            return -1000
+
+        if inventory.is_full:
+            return -1000
 
         price = state.market.price(product)
 
         if price <= 0:
             return -1000
 
-        # =================================================
-        # 3. Required cash
-        # =================================================
-
-        metadata = candidate.metadata or {}
-
-        quantity = int(
-            metadata.get(
-                "quantity",
-                1,
-            )
-        )
-
-        if quantity <= 0:
-            return -1000
-
-        total_cost = (
-            price * quantity
-        )
-
-        # Maintain cash reserve.
         reserve = 300
 
-        if state.money < total_cost + reserve:
+        if state.money - price < reserve:
             return -1000
-
-        # =================================================
-        # 4. Shed capacity
-        # =================================================
-
-        inventory = (
-            state.current_player
-            .inventory
-            .shed
-        )
-
-        shed_capacity = getattr(
-            state,
-            "shed_capacity",
-            100,
-        )
-
-        used_capacity = sum(
-            max(0, value)
-            for value in inventory.values()
-        )
-
-        if (
-            used_capacity + quantity
-            > shed_capacity
-        ):
-            return -1000
-
-        # =================================================
-        # 5. Do not buy something already available
-        # =================================================
-
-        current_quantity = inventory.get(
-            product,
-            0,
-        )
-
-        if product == "FERTILIZER":
-
-            farm = state.current_player.farm
-
-            fertilizer_demand = 0
-
-            for row in farm.tiles:
-
-                for tile in row:
-
-                    if not tile.is_plant:
-                        continue
-
-                    crop = tile.crop
-
-                    if crop is None:
-                        continue
-
-                    if crop.is_fertilized:
-                        continue
-
-                    if crop.remaining_life <= 2:
-                        continue
-
-                    fertilizer_demand += 1
-
-            # Existing inventory already covers
-            # all immediate demand.
-            if current_quantity >= fertilizer_demand:
-                return 0
-
-            needed_units = (
-                fertilizer_demand
-                - current_quantity
-            )
-
-        else:
-
-            # =================================================
-            # WHEAT downstream demand
-            # =================================================
-
-            wheat_shops = {
-                "BAKERY",
-                "PIZZA_SHOP",
-                "BRUNCH_SPOT",
-                "ICE_CREAM_SHOP",
-                "FARMERS_MARKET",
-            }
-
-            unlocked_shops = getattr(
-                state.town,
-                "unlocked_shops",
-                [],
-            )
-
-            wheat_demand = sum(
-                1
-                for shop in unlocked_shops
-                if shop in wheat_shops
-            )
-
-            if wheat_demand <= 0:
-                return 0
-
-            if current_quantity >= wheat_demand:
-                return 0
-
-            needed_units = (
-                wheat_demand
-                - current_quantity
-            )
-
-        # =================================================
-        # 6. Actual need
-        # =================================================
-
-        if needed_units <= 0:
-            return 0
-
-        if current_quantity >= needed_units:
-            return 0
-
-        # =================================================
-        # 7. Time horizon
-        # =================================================
 
         days_remaining = max(
             0,
@@ -710,149 +562,39 @@ class Evaluator:
         )
 
         if days_remaining <= 0:
-            return 0
-
-        # =================================================
-        # 8. Downstream value
-        # =================================================
-
-        if product == "FERTILIZER":
-
-            # Fertilizer increases crop production.
-            #
-            # The environment gives fertilized crops
-            # +2 yield instead of +1 on a production day.
-            #
-            # Use a conservative minimum value.
-            downstream_value = 2 * 25
-
-            # Earlier crops provide more opportunity
-            # to exploit the fertilizer bonus.
-            if days_remaining >= 7:
-                downstream_value += 15
-
-        elif product == "WHEAT":
-
-            # Wheat has value primarily through shops
-            # and eventual resale.
-            #
-            # Do not treat low market price by itself
-            # as sufficient justification.
-            unlocked_shops = getattr(
-                state.town,
-                "unlocked_shops",
-                [],
-            )
-
-            wheat_shop_count = sum(
-                1
-                for shop in unlocked_shops
-                if shop in {
-                    "BAKERY",
-                    "PIZZA_SHOP",
-                    "BRUNCH_SPOT",
-                    "ICE_CREAM_SHOP",
-                    "FARMERS_MARKET",
-                }
-            )
-
-            if wheat_shop_count <= 0:
-                return 0
-
-            downstream_value = (
-                wheat_shop_count * 30
-            )
-
-            # Longer horizon makes wheat more useful.
-            if days_remaining >= 7:
-                downstream_value += 10
-
-        else:
-
             return -1000
 
-        # =================================================
-        # 9. Must actually create economic value
-        # =================================================
-
-        net_value = (
-            downstream_value
-            - total_cost
-        )
-
-        if net_value <= 0:
-            return 0
-
-        # =================================================
-        # 10. Price discipline
-        # =================================================
-
-        # Never buy merely because the product is cheap.
-        #
-        # The task must have downstream demand AND
-        # produce positive expected value.
-        #
-        # We use the product's base price as a reference
-        # rather than assuming a cheap price automatically
-        # means "BUY".
-
-        base_prices = {
-            "WHEAT": 25,
-            "FERTILIZER": 100,
-        }
-
-        base_price = base_prices.get(
-            product,
-            price,
-        )
-
-        if base_price <= 0:
-            return 0
-
-        # Penalize unusually expensive purchases.
-        price_ratio = (
-            price / base_price
-        )
-
-        if price_ratio > 2.0:
-            return 0
-
-        # =================================================
-        # 11. Final normalized score
-        # =================================================
-
-        score = (
-            net_value / max(
-                1,
-                total_cost,
+        downstream_value = (
+            candidate.metadata.get(
+                "downstream_value",
+                0,
             )
-        ) * 100
-
-        # Demand strength bonus.
-        demand_bonus = min(
-            needed_units * 5,
-            20,
         )
 
-        # Time bonus.
-        time_bonus = min(
-            days_remaining,
-            10,
-        )
+        if downstream_value <= price:
+            return -1000
 
-        # Price efficiency bonus.
-        price_bonus = max(
+        profit = downstream_value - price
+
+        margin = profit / price
+
+        if margin < config["min_profit_margin"]:
+            return -1000
+
+        # Positive economic score.
+        score = margin * 100
+
+        # Small bonus when the item is genuinely needed.
+        needed_quantity = candidate.metadata.get(
+            "needed_quantity",
             0,
-            (2.0 - price_ratio) * 5,
         )
 
-        return max(
-            0,
-            score
-            + demand_bonus
-            + time_bonus
-            + price_bonus,
-        )
+        if needed_quantity > 0:
+            score += 20
+
+        return score
+
 
     def _place_score(
         self,

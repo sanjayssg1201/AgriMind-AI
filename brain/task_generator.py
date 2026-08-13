@@ -615,24 +615,55 @@ class TaskGenerator:
         self,
         state: GameState,
     ) -> list[Task]:
+
         tasks = []
 
         inventory = state.current_player.inventory.shed
 
-        # Existing SELL logic
+        # =====================================================
+        # SELL
+        # =====================================================
+
         for product, quantity in inventory.items():
 
             if quantity <= 0:
                 continue
 
-            # existing SELL task generation...
+            # Do not create SELL tasks for things that are
+            # not actually sellable market products.
+            if product == "FERTILIZER":
+                continue
 
-        # Existing BUY_SEED logic
+            price = state.market.price(product)
+
+            if price <= 0:
+                continue
+
+            tasks.append(
+                Task(
+                    task_type="SELL",
+                    target=product,
+                    priority=50,
+                    metadata={
+                        "quantity": 1,
+                        "price": price,
+                        "inventory": quantity,
+                    },
+                )
+            )
+
+        # =====================================================
+        # BUY SEED
+        # =====================================================
+
         tasks.extend(
             self._buy_seed_tasks(state)
         )
 
-        # BUY_PRODUCT intelligence
+        # =====================================================
+        # BUY PRODUCT
+        # =====================================================
+
         tasks.extend(
             self._buy_product_tasks(state)
         )
@@ -820,182 +851,153 @@ def _buy_product_tasks(
 
     tasks = []
 
-    # Kaggriculture only permits BUY_PRODUCT
-    # for these two products.
-    buyable_products = (
+    BUYABLE_PRODUCTS = {
         "WHEAT",
         "FERTILIZER",
-    )
+    }
 
-    inventory = state.current_player.inventory.shed
+    inventory = state.current_player.inventory
 
-    # -------------------------------------------------
-    # Shed capacity
-    # -------------------------------------------------
+    # --------------------------------------------------
+    # Basic constraints
+    # --------------------------------------------------
 
-    shed_capacity = getattr(
-        state,
-        "shed_capacity",
-        100,
-    )
-
-    current_shed_quantity = sum(
-        max(0, quantity)
-        for quantity in inventory.values()
-    )
-
-    available_capacity = max(
-        0,
-        shed_capacity - current_shed_quantity,
-    )
-
-    if available_capacity <= 0:
+    # Cannot buy anything without shed space.
+    if inventory.is_full:
         return tasks
 
-    # -------------------------------------------------
-    # Cash reserve
-    # -------------------------------------------------
-
-    # Do not spend the farm's entire cash balance.
+    # Keep emergency cash available.
     reserve = 300
 
-    if state.money <= reserve:
-        return tasks
-
-    # -------------------------------------------------
-    # WHEAT
-    # -------------------------------------------------
-
-    wheat_price = state.market.price("WHEAT")
-
-    if wheat_price > 0:
-
-        wheat_quantity = inventory.get(
-            "WHEAT",
-            0,
-        )
-
-        # WHEAT has downstream value when a shop that
-        # consumes wheat is currently unlocked.
-        wheat_shops = {
-            "BAKERY",
-            "PIZZA_SHOP",
-            "BRUNCH_SPOT",
-            "ICE_CREAM_SHOP",
-            "FARMERS_MARKET",
-        }
-
-        unlocked_shops = getattr(
-            state.town,
-            "unlocked_shops",
-            [],
-        )
-
-        wheat_is_needed = any(
-            shop in wheat_shops
-            for shop in unlocked_shops
-        )
-
-        # Do not continuously accumulate wheat.
-        # One unit is enough to create a candidate;
-        # subsequent decisions can buy again later.
-        if (
-            wheat_is_needed
-            and wheat_quantity < 1
-            and state.money >= reserve + wheat_price
-            and available_capacity >= 1
-        ):
-
-            tasks.append(
-                Task(
-                    task_type="BUY_PRODUCT",
-                    target="WHEAT",
-                    priority=25,
-                    estimated_reward=0,
-                    estimated_cost=wheat_price,
-                    metadata={
-                        "product": "WHEAT",
-                        "quantity": 1,
-                        "price": wheat_price,
-                        "reason": "DOWNSTREAM_SHOP_DEMAND",
-                    },
-                )
-            )
-
-    # -------------------------------------------------
-    # FERTILIZER
-    # -------------------------------------------------
-
-    fertilizer_price = state.market.price(
-        "FERTILIZER"
+    available_cash = max(
+        0,
+        state.money - reserve,
     )
 
-    if fertilizer_price > 0:
+    if available_cash <= 0:
+        return tasks
 
-        fertilizer_quantity = inventory.get(
-            "FERTILIZER",
+    # --------------------------------------------------
+    # Evaluate each genuinely buyable product
+    # --------------------------------------------------
+
+    for product in BUYABLE_PRODUCTS:
+
+        current_price = state.market.price(product)
+
+        if current_price <= 0:
+            continue
+
+        # --------------------------------------------------
+        # Inventory constraint
+        # --------------------------------------------------
+
+        current_stock = inventory.item_count(product)
+
+        config = BUY_PRODUCT_CONFIG.get(product)
+
+        if config is None:
+            continue
+
+        max_useful_stock = config["max_useful_stock"]
+
+        if current_stock >= max_useful_stock:
+            continue
+
+        # --------------------------------------------------
+        # Actual need
+        # --------------------------------------------------
+
+        daily_demand = config["daily_demand"]
+
+        days_remaining = max(
             0,
+            state.turns_remaining // 24,
         )
 
-        # Count crops that could actually benefit
-        # from fertilizer.
-        fertilizer_demand = 0
+        required_stock = min(
+            max_useful_stock,
+            max(
+                0,
+                days_remaining * daily_demand,
+            ),
+        )
 
-        farm = state.current_player.farm
+        needed_quantity = (
+            required_stock - current_stock
+        )
 
-        for row in farm.tiles:
+        if needed_quantity <= 0:
+            continue
 
-            for tile in row:
+        # Only consider one unit at a time.
+        quantity = 1
 
-                if not tile.is_plant:
-                    continue
+        # --------------------------------------------------
+        # Cash constraint
+        # --------------------------------------------------
 
-                crop = tile.crop
+        if current_price > available_cash:
+            continue
 
-                if crop is None:
-                    continue
+        # --------------------------------------------------
+        # Downstream value
+        # --------------------------------------------------
 
-                if crop.is_fertilized:
-                    continue
+        downstream_value = (
+            config["downstream_value"]
+        )
 
-                if crop.remaining_life <= 2:
-                    continue
+        expected_value = (
+            downstream_value
+        )
 
-                fertilizer_demand += 1
+        # --------------------------------------------------
+        # Do not buy simply because price is low.
+        #
+        # Buying must have positive downstream utility.
+        # --------------------------------------------------
 
-        # We already have enough fertilizer for
-        # the currently useful demand.
-        if fertilizer_quantity >= fertilizer_demand:
-            return tasks
+        expected_profit = (
+            expected_value - current_price
+        )
 
-        # Only buy fertilizer if it has an actual
-        # downstream use.
-        if fertilizer_demand <= 0:
-            return tasks
+        minimum_margin = (
+            config["min_profit_margin"]
+        )
 
-        # Purchase only one unit per generated task.
-        # This prevents the agent from blindly filling
-        # the shed with fertilizer.
-        if (
-            state.money >= reserve + fertilizer_price
-            and available_capacity >= 1
-        ):
+        minimum_required_value = (
+            current_price
+            * (1 + minimum_margin)
+        )
 
-            tasks.append(
-                Task(
-                    task_type="BUY_PRODUCT",
-                    target="FERTILIZER",
-                    priority=40,
-                    estimated_reward=0,
-                    estimated_cost=fertilizer_price,
-                    metadata={
-                        "product": "FERTILIZER",
-                        "quantity": 1,
-                        "price": fertilizer_price,
-                        "demand": fertilizer_demand,
-                        "reason": "CROP_DEMAND",
-                    },
-                )
+        if expected_value < minimum_required_value:
+            continue
+
+        if expected_profit <= 0:
+            continue
+
+        # --------------------------------------------------
+        # Create candidate
+        # --------------------------------------------------
+
+        tasks.append(
+            Task(
+                task_type="BUY_PRODUCT",
+                target=product,
+                priority=expected_profit,
+                estimated_reward=expected_value,
+                estimated_cost=current_price,
+                metadata={
+                    "product": product,
+                    "quantity": quantity,
+                    "price": current_price,
+                    "current_stock": current_stock,
+                    "needed_quantity": needed_quantity,
+                    "downstream_value": downstream_value,
+                    "expected_profit": expected_profit,
+                },
             )
+        )
 
     return tasks

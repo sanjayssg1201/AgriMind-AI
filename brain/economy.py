@@ -124,14 +124,37 @@ class EconomyManager:
         current_price: float,
     ) -> bool:
 
-        average = self.memory.historical_average_price(
-            product
-        )
-
-        if average == 0:
+        if not product:
             return False
 
-        return current_price >= average
+        if current_price <= 0:
+            return False
+
+        average = (
+            self.memory.historical_average_price(
+                product
+            )
+        )
+
+        # No historical baseline.
+        if average <= 0:
+            return False
+
+        trend = self.memory.price_trend(product)
+
+        premium_ratio = (
+            current_price - average
+        ) / average
+
+        # Strongly attractive price.
+        if premium_ratio >= 0.15:
+            return True
+
+        # Fair-or-better price while the market is falling.
+        if premium_ratio >= 0 and trend < 0:
+            return True
+
+        return False
 
     def price_trend(
         self,

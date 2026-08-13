@@ -73,6 +73,27 @@ class AnimalType(str, Enum):
 
     SHEEP = "SHEEP"
 
+ANIMAL_CONFIG = {
+    "GOOSE": {
+        "cost": 300,
+        "first_yield_day": 4,
+        "interval": 1,
+        "product": "EGG",
+    },
+    "COW": {
+        "cost": 400,
+        "first_yield_day": 8,
+        "interval": 2,
+        "product": "MILK",
+    },
+    "SHEEP": {
+        "cost": 500,
+        "first_yield_day": 6,
+        "interval": 3,
+        "product": "WOOL",
+    },
+}
+
 
 # ==========================================================
 # Product Types
@@ -265,3 +286,20 @@ class StrategyType(str, Enum):
     MARKET = "MARKET"
 
     ENDGAME = "ENDGAME"
+
+
+# ==========================================================
+# Buyable Product Configuration
+# ==========================================================
+
+BUY_PRODUCT_CONFIG = {
+    "WHEAT": {
+        "max_useful_stock": 5,
+        "daily_demand": 1,
+    },
+
+    "FERTILIZER": {
+        "max_useful_stock": 5,
+        "daily_demand": 1,
+    },
+}

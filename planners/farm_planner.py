@@ -83,6 +83,9 @@ class FarmPlanner:
         if task_type == "COLLECT_FERTILIZER":
             return self._collect_fertilizer(task)
 
+        if task_type == "PLACE":
+            return self._place(task)
+
         return None
 
     # =====================================================
@@ -312,3 +315,22 @@ class FarmPlanner:
                 plans.append(plan)
 
         return plans
+
+    # =====================================================
+# Place Animal
+# =====================================================
+
+    def _place(
+    self,
+    task: Task,
+) -> FarmPlan:
+
+        return FarmPlan(
+        task=task,
+        action="PLACE",
+        target=task.target,
+        priority=task.priority,
+        estimated_reward=task.estimated_reward,
+        estimated_cost=task.estimated_cost,
+        metadata=task.metadata,
+    )
