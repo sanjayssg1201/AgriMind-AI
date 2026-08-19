@@ -71,6 +71,9 @@ class FarmPlanner:
         if task_type == "PLANT":
             return self._plant(task)
 
+        if task_type == "BUY_ANIMAL":
+            return self._buy_animal(task)
+
         if task_type == "FEED":
             return self._feed(task)
 
@@ -157,6 +160,25 @@ class FarmPlanner:
         return FarmPlan(
             task=task,
             action="PLANT",
+            target=task.target,
+            priority=task.priority,
+            estimated_reward=task.estimated_reward,
+            estimated_cost=task.estimated_cost,
+            metadata=task.metadata,
+        )
+
+    # =====================================================
+    # Buy Animal
+    # =====================================================
+
+    def _buy_animal(
+        self,
+        task: Task,
+    ) -> FarmPlan:
+
+        return FarmPlan(
+            task=task,
+            action="BUY_ANIMAL",
             target=task.target,
             priority=task.priority,
             estimated_reward=task.estimated_reward,

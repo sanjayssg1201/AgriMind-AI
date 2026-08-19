@@ -943,15 +943,27 @@ def _buy_product_tasks(
         # --------------------------------------------------
         # Downstream value
         # --------------------------------------------------
-
-        downstream_value = (
-            config["downstream_value"]
+        downstream_value = self.economy.downstream_value(
+            state,
+            product,
         )
 
-        expected_value = (
-            downstream_value
+        if downstream_value <= 0:
+            continue
+
+        expected_profit = (
+            downstream_value - current_price
         )
 
+        if expected_profit <= 0:
+            continue
+
+        margin = (
+            expected_profit / current_price
+        )
+
+        if margin < 0.10:
+            continue
         # --------------------------------------------------
         # Do not buy simply because price is low.
         #

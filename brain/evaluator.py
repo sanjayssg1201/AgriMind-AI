@@ -6,7 +6,6 @@ Evaluates candidate actions and assigns a score.
 
 from brain.action_candidate import ActionCandidate
 from typing import Any
-
 from algorithms.heuristics import Heuristic
 from brain.memory import BrainMemory
 from core.constants import ANIMAL_CONFIG
@@ -236,6 +235,59 @@ class Evaluator:
     # ======================================================
     # Animals
     # ======================================================
+
+    def _buy_animal_score(
+        self,
+        state: GameState,
+        candidate: ActionCandidate,
+    ) -> float:
+
+        animal = candidate.target
+
+        if animal not in ANIMAL_CONFIG:
+            return -1000
+
+        config = ANIMAL_CONFIG[animal]
+
+        cost = config["cost"]
+        first_yield_day = config["first_yield_day"]
+        interval = config["interval"]
+        product = config["product"]
+
+        if state.money - cost < 300:
+            return -1000
+
+        if state.current_player.inventory.is_full:
+            return -1000
+
+        product_price = state.market.price(product)
+
+        if product_price <= 0:
+            return -1000
+
+        days_remaining = max(
+            0,
+            state.turns_remaining // 24,
+        )
+
+        if days_remaining <= first_yield_day:
+            return -1000
+
+        roi = self.economy.animal_roi(
+            animal=animal,
+            cost=cost,
+            product_price=product_price,
+            first_yield_day=first_yield_day,
+            interval=interval,
+            days_remaining=days_remaining,
+        )
+
+        if roi <= 0:
+            return -1000
+
+        score = roi * 100
+
+        return score
 
     def _feed_score(
         self,
@@ -529,19 +581,13 @@ class Evaluator:
         state: GameState,
         candidate: ActionCandidate,
     ) -> float:
+
         product = candidate.target
 
         if product not in BUY_PRODUCT_CONFIG:
             return -1000
 
-        config = BUY_PRODUCT_CONFIG[product]
-
         inventory = state.current_player.inventory
-
-        current_stock = inventory.item_count(product)
-
-        if current_stock >= config["max_useful_stock"]:
-            return -1000
 
         if inventory.is_full:
             return -1000
@@ -556,19 +602,17 @@ class Evaluator:
         if state.money - price < reserve:
             return -1000
 
-        days_remaining = max(
-            0,
-            state.turns_remaining // 24,
+        need = self.economy.product_need(
+            state,
+            product,
         )
 
-        if days_remaining <= 0:
+        if need <= 0:
             return -1000
 
-        downstream_value = (
-            candidate.metadata.get(
-                "downstream_value",
-                0,
-            )
+        downstream_value = self.economy.downstream_value(
+            state,
+            product,
         )
 
         if downstream_value <= price:
@@ -578,20 +622,21 @@ class Evaluator:
 
         margin = profit / price
 
-        if margin < config["min_profit_margin"]:
+        # Require a meaningful economic advantage.
+        if margin < 0.10:
             return -1000
 
-        # Positive economic score.
         score = margin * 100
 
-        # Small bonus when the item is genuinely needed.
-        needed_quantity = candidate.metadata.get(
-            "needed_quantity",
-            0,
+        # Stronger priority when the product is actually needed.
+        score += min(
+            30,
+            need * 10,
         )
 
-        if needed_quantity > 0:
-            score += 20
+        # Preserve additional cash when the farm is relatively poor.
+        if state.money < 1000:
+            score -= 10
 
         return score
 
@@ -601,6 +646,7 @@ class Evaluator:
         state: GameState,
         candidate: ActionCandidate,
     ) -> float:
+
         tile = candidate.target
 
         if tile is None:
@@ -609,32 +655,56 @@ class Evaluator:
         if tile.has_animal:
             return -1000
 
-        animal = None
+        animal = candidate.metadata.get("animal")
 
-        if candidate.metadata:
-            animal = candidate.metadata.get("animal")
-
-        if animal is None:
+        if animal not in ANIMAL_CONFIG:
             return -1000
 
-        structure_map = {
-            "GOOSE": "COOP",
-            "COW": "PASTURE",
-            "SHEEP": "PASTURE",
-        }
+        config = ANIMAL_CONFIG[animal]
 
-        required_structure = structure_map.get(animal)
+        # Animal must actually exist in the player's inventory.
+        inventory = state.current_player.inventory
 
-        if required_structure is None:
+        if inventory.item_count(animal) <= 0:
             return -1000
 
-        if required_structure == "COOP" and not tile.is_coop:
+        # Prefer placement when the animal can produce within
+        # the remaining game time.
+        days_remaining = max(
+            0,
+            state.turns_remaining // 24,
+        )
+
+        if days_remaining <= config["first_yield_day"]:
             return -1000
 
-        if required_structure == "PASTURE" and not tile.is_pasture:
+        product = config["product"]
+        product_price = state.market.price(product)
+
+        if product_price <= 0:
             return -1000
 
-        return 95
+        production_days = (
+            days_remaining
+            - config["first_yield_day"]
+        )
+
+        production_count = (
+            production_days // config["interval"]
+        ) + 1
+
+        expected_value = (
+            production_count * product_price
+        )
+
+        # Placement has no additional purchase cost.
+        score = expected_value
+
+        # Prefer tiles that can immediately support production.
+        if tile.has_animal is False:
+            score += 10
+
+        return score
 
     # ======================================================
     # Expansion
