@@ -378,198 +378,54 @@ class Evaluator:
         product: str,
     ) -> float:
 
-        # =====================================================
-        # 1. Validate product
-        # =====================================================
+        current = state.market.price(product)
 
-        if not product:
+        if current <= 0:
             return -1000
 
-        inventory = state.current_player.inventory
+        average = self.memory.historical_average_price(product)
 
-        quantity = inventory.item_count(product)
-
-        # We cannot sell something that is not in the shed.
-        if quantity <= 0:
-            return -1000
-
-        # =====================================================
-        # 2. Validate market price
-        # =====================================================
-
-        current_price = state.market.price(product)
-
-        if current_price <= 0:
-            return -1000
-
-        # Fertilizer is not a normal sellable product in
-        # Kaggriculture.
-        if product == "FERTILIZER":
-            return -1000
-
-        # =====================================================
-        # 3. Historical market valuation
-        # =====================================================
-
-        historical_average = (
-            self.memory.historical_average_price(product)
-        )
+        if average <= 0:
+            return 0
 
         trend = self.memory.price_trend(product)
 
-        score = 0.0
+        market_score = Heuristic.market_score(
+            current,
+            average,
+        )
 
-        if historical_average > 0:
+        # Strong premium over historical price.
+        if current >= average * 1.20:
+            market_score += 20
 
-            premium_ratio = (
-                current_price - historical_average
-            ) / historical_average
+        elif current >= average * 1.10:
+            market_score += 10
 
-            # -------------------------------------------------
-            # Strongly above historical value
-            # -------------------------------------------------
+        # Falling market increases urgency to sell.
+        if trend < 0:
+            market_score += 10
 
-            if premium_ratio >= 0.25:
-                score += 35
+        # Rising market means holding is preferable.
+        elif trend > 0:
+            market_score -= 15
 
-            # -------------------------------------------------
-            # Moderately above historical value
-            # -------------------------------------------------
-
-            elif premium_ratio >= 0.10:
-                score += 20
-
-            # -------------------------------------------------
-            # Approximately fair value
-            # -------------------------------------------------
-
-            elif premium_ratio >= -0.10:
-                score += 5
-
-            # -------------------------------------------------
-            # Moderately undervalued
-            # -------------------------------------------------
-
-            elif premium_ratio >= -0.25:
-                score -= 15
-
-            # -------------------------------------------------
-            # Strongly undervalued
-            # -------------------------------------------------
-
-            else:
-                score -= 30
-
-        # No historical data means we should not aggressively
-        # sell merely because a price exists.
-        else:
-            score += 0
-
-        # =====================================================
-        # 4. Price trend
-        # =====================================================
-
-        if historical_average > 0:
-
-            # Rising price:
-            # wait unless the current price is already
-            # significantly attractive.
-            if trend > 0:
-
-                if current_price >= historical_average * 1.15:
-                    score += 5
-                else:
-                    score -= 5
-
-            # Falling price:
-            # selling is more attractive if the current price
-            # is still above historical value.
-            elif trend < 0:
-
-                if current_price >= historical_average:
-                    score += 8
-                else:
-                    score -= 5
-
-        # =====================================================
-        # 5. Cash pressure
-        # =====================================================
-
-        money = state.money
-
-        if money < 300:
-            score += 25
-
-        elif money < 500:
-            score += 15
-
-        elif money < 1000:
-            score += 5
-
-        # =====================================================
-        # 6. Shed pressure
-        # =====================================================
-
-        shed_used = inventory.total_items
-
-        # Kaggriculture shed capacity = 100.
-        shed_utilization = shed_used / 100
-
-        if shed_utilization >= 0.90:
-            score += 20
-
-        elif shed_utilization >= 0.75:
-            score += 10
-
-        elif shed_utilization >= 0.50:
-            score += 3
-
-        # =====================================================
-        # 7. Time horizon
-        # =====================================================
-
-        turns_remaining = getattr(
+            market_score += self.economy.market_supply_pressure(
             state,
-            "turns_remaining",
-            0,
+            product,
+        )
+        decision = self.economy.market_decision(
+            state,
+            product,
         )
 
-        days_remaining = (
-            max(0, turns_remaining) // 24
-        )
+        if decision == "SELL":
+            market_score += 15
 
-        # Near the end of the game, realized cash is
-        # more valuable than waiting for another cycle.
-        if days_remaining <= 2:
-            score += 25
+        elif decision == "HOLD":
+            market_score -= 5
 
-        elif days_remaining <= 5:
-            score += 10
-
-        # =====================================================
-        # 8. Inventory quantity
-        # =====================================================
-
-        # Selling one unit while retaining inventory is safer.
-        if quantity >= 5:
-            score += 10
-
-        elif quantity >= 3:
-            score += 5
-
-        elif quantity == 1:
-            score -= 5
-
-        # =====================================================
-        # 9. Final threshold
-        # =====================================================
-
-        # A negative score means there is no sufficiently
-        # strong economic reason to sell.
-        if score < 0:
-            return 0
-
-        return score
+        return market_score
 
 
     # ======================================================
@@ -587,7 +443,13 @@ class Evaluator:
         if product not in BUY_PRODUCT_CONFIG:
             return -1000
 
+        config = BUY_PRODUCT_CONFIG[product]
         inventory = state.current_player.inventory
+
+        current_stock = inventory.item_count(product)
+
+        if current_stock >= config["max_useful_stock"]:
+            return -1000
 
         if inventory.is_full:
             return -1000
@@ -602,44 +464,50 @@ class Evaluator:
         if state.money - price < reserve:
             return -1000
 
-        need = self.economy.product_need(
-            state,
-            product,
+        days_remaining = max(
+            0,
+            state.turns_remaining // 24,
         )
 
-        if need <= 0:
+        if days_remaining <= 0:
             return -1000
 
-        downstream_value = self.economy.downstream_value(
-            state,
-            product,
+        downstream_value = candidate.metadata.get(
+            "downstream_value",
+            0,
         )
 
         if downstream_value <= price:
             return -1000
 
         profit = downstream_value - price
-
         margin = profit / price
 
-        # Require a meaningful economic advantage.
-        if margin < 0.10:
+        if margin < config["min_profit_margin"]:
             return -1000
 
-        score = margin * 100
-
-        # Stronger priority when the product is actually needed.
-        score += min(
-            30,
-            need * 10,
+        # Market supply adjustment.
+        supply_pressure = (
+            self.economy.market_supply_pressure(
+                state,
+                product,
+            )
         )
 
-        # Preserve additional cash when the farm is relatively poor.
-        if state.money < 1000:
-            score -= 10
+        # Low supply makes buying more attractive.
+        # Excess supply makes buying less attractive.
+        score = margin * 100
+        score += supply_pressure
+
+        needed_quantity = candidate.metadata.get(
+            "needed_quantity",
+            0,
+        )
+
+        if needed_quantity > 0:
+            score += 20
 
         return score
-
 
     def _place_score(
         self,

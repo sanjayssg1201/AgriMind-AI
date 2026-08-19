@@ -124,34 +124,19 @@ class EconomyManager:
         current_price: float,
     ) -> bool:
 
-        if not product:
-            return False
+        average = self.memory.historical_average_price(product)
+        trend = self.memory.price_trend(product)
 
         if current_price <= 0:
             return False
 
-        average = (
-            self.memory.historical_average_price(
-                product
-            )
-        )
-
-        # No historical baseline.
+        # No historical baseline yet.
         if average <= 0:
             return False
 
-        trend = self.memory.price_trend(product)
-
-        premium_ratio = (
-            current_price - average
-        ) / average
-
-        # Strongly attractive price.
-        if premium_ratio >= 0.15:
-            return True
-
-        # Fair-or-better price while the market is falling.
-        if premium_ratio >= 0 and trend < 0:
+        # Sell when price is at least the historical average
+        # and the market is not strongly rising.
+        if current_price >= average and trend <= 0:
             return True
 
         return False
@@ -446,3 +431,110 @@ class EconomyManager:
             return "PLANT"
 
         return "SELL"
+
+
+    def market_opportunity(
+        self,
+        product: str,
+        current_price: float,
+    ) -> float:
+
+        average = self.memory.historical_average_price(product)
+        trend = self.memory.price_trend(product)
+
+        if current_price <= 0 or average <= 0:
+            return 0
+
+        score = 0.0
+
+        # Price relative to historical baseline.
+        price_ratio = current_price / average
+
+        if price_ratio >= 1.20:
+            score += 30
+        elif price_ratio >= 1.10:
+            score += 20
+        elif price_ratio >= 1.00:
+            score += 10
+
+        # Falling prices strengthen the case for selling.
+        if trend < 0:
+            score += 10
+
+        # Rising prices suggest holding.
+        elif trend > 0:
+            score -= 10
+
+        return score
+
+
+    # =====================================================
+    # Market Supply Pressure
+    # =====================================================
+
+    def market_supply_pressure(
+        self,
+        state: GameState,
+        product: str,
+    ) -> float:
+
+        inventory = state.market.inventory_count(product)
+
+        if inventory <= 0:
+            return 0
+
+        # Low market inventory = stronger demand.
+        if inventory <= 5:
+            return 20
+
+        if inventory <= 10:
+            return 10
+
+        # High inventory = weaker demand.
+        if inventory >= 30:
+            return -15
+
+        if inventory >= 20:
+            return -5
+
+        return 0
+
+    # =====================================================
+    # Market Decision
+    # =====================================================
+
+    def market_decision(
+        self,
+        state: GameState,
+        product: str,
+    ) -> str:
+
+        price = state.market.price(product)
+
+        if price <= 0:
+            return "HOLD"
+
+        sell_score = self.market_opportunity(
+            product,
+            price,
+        )
+
+        sell_score += self.market_supply_pressure(
+            state,
+            product,
+        )
+
+        inventory = state.current_player.inventory
+        stock = inventory.item_count(product)
+
+        # Do not sell something we do not own.
+        if stock <= 0:
+            return "BUY"
+
+        if sell_score >= 30:
+            return "SELL"
+
+        if sell_score <= 0:
+            return "HOLD"
+
+        return "HOLD"
