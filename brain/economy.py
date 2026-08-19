@@ -124,19 +124,19 @@ class EconomyManager:
         current_price: float,
     ) -> bool:
 
-        average = self.memory.historical_average_price(product)
-        trend = self.memory.price_trend(product)
+        average = self.memory.historical_average_price(
+            product
+        )
 
-        if current_price <= 0:
-            return False
-
-        # No historical baseline yet.
         if average <= 0:
             return False
 
-        # Sell when price is at least the historical average
-        # and the market is not strongly rising.
-        if current_price >= average and trend <= 0:
+        trend = self.memory.price_trend(product)
+
+        if current_price >= average:
+            return True
+
+        if trend < 0 and current_price >= average * 0.90:
             return True
 
         return False
@@ -473,31 +473,29 @@ class EconomyManager:
     # =====================================================
 
     def market_supply_pressure(
-        self,
-        state: GameState,
-        product: str,
-    ) -> float:
+    self,
+    state: GameState,
+    product: str,
+) -> float:
 
-        inventory = state.market.inventory_count(product)
+        market_inventory = state.market.inventory_count(product)
 
-        if inventory <= 0:
-            return 0
+        if market_inventory <= 0:
+            return 0.0
 
-        # Low market inventory = stronger demand.
-        if inventory <= 5:
-            return 20
+        history = self.memory.market_inventory_history.get(product)
 
-        if inventory <= 10:
-            return 10
+        if not history:
+            return 0.0
 
-        # High inventory = weaker demand.
-        if inventory >= 30:
-            return -15
+        average_inventory = sum(history) / len(history)
 
-        if inventory >= 20:
-            return -5
+        if average_inventory <= 0:
+            return 0.0
 
-        return 0
+        return (
+            market_inventory - average_inventory
+        ) / average_inventory
 
     # =====================================================
     # Market Decision
@@ -538,3 +536,74 @@ class EconomyManager:
             return "HOLD"
 
         return "HOLD"
+
+    def market_price_signal(
+        self,
+        product: str,
+        current_price: float,
+    ) -> float:
+
+        average = self.memory.historical_average_price(product)
+
+        if average <= 0:
+            return 0.0
+
+        return (current_price - average) / average
+
+    def market_supply_pressure(
+        self,
+        state: GameState,
+        product: str,
+    ) -> float:
+
+        market_inventory = state.market.inventory_count(product)
+
+        if market_inventory <= 0:
+            return 0.0
+
+        history = self.memory.market_inventory_history.get(product)
+
+        if not history:
+            return 0.0
+
+        average_inventory = sum(history) / len(history)
+
+        if average_inventory <= 0:
+            return 0.0
+
+        return (
+            market_inventory - average_inventory
+        ) / average_inventory
+
+    def dynamic_market_score(
+        self,
+        state: GameState,
+        product: str,
+    ) -> float:
+
+        price = state.market.price(product)
+
+        price_signal = self.market_price_signal(
+            product,
+            price,
+        )
+
+        trend = self.price_trend(product)
+
+        supply_pressure = self.market_supply_pressure(
+            state,
+            product,
+        )
+
+        score = 0.0
+
+        score += price_signal * 50
+
+        if trend < 0:
+            score += 10
+        elif trend > 0:
+            score -= 10
+
+        score += supply_pressure * 20
+
+        return score

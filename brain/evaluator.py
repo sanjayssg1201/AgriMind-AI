@@ -380,52 +380,22 @@ class Evaluator:
 
         current = state.market.price(product)
 
-        if current <= 0:
-            return -1000
-
         average = self.memory.historical_average_price(product)
 
         if average <= 0:
             return 0
 
-        trend = self.memory.price_trend(product)
+        dynamic_score = self.economy.dynamic_market_score(
+            state,
+            product,
+        )
 
         market_score = Heuristic.market_score(
             current,
             average,
         )
 
-        # Strong premium over historical price.
-        if current >= average * 1.20:
-            market_score += 20
-
-        elif current >= average * 1.10:
-            market_score += 10
-
-        # Falling market increases urgency to sell.
-        if trend < 0:
-            market_score += 10
-
-        # Rising market means holding is preferable.
-        elif trend > 0:
-            market_score -= 15
-
-            market_score += self.economy.market_supply_pressure(
-            state,
-            product,
-        )
-        decision = self.economy.market_decision(
-            state,
-            product,
-        )
-
-        if decision == "SELL":
-            market_score += 15
-
-        elif decision == "HOLD":
-            market_score -= 5
-
-        return market_score
+        return market_score + dynamic_score
 
 
     # ======================================================
@@ -486,18 +456,25 @@ class Evaluator:
         if margin < config["min_profit_margin"]:
             return -1000
 
-        # Market supply adjustment.
-        supply_pressure = (
-            self.economy.market_supply_pressure(
-                state,
-                product,
-            )
+        # Market intelligence:
+        # Negative market score means the product is relatively cheap.
+        market_score = self.economy.dynamic_market_score(
+            state,
+            product,
         )
 
-        # Low supply makes buying more attractive.
-        # Excess supply makes buying less attractive.
         score = margin * 100
-        score += supply_pressure
+
+        if market_score < 0:
+            score += min(
+                25,
+                abs(market_score),
+            )
+        elif market_score > 0:
+            score -= min(
+                25,
+                market_score,
+            )
 
         needed_quantity = candidate.metadata.get(
             "needed_quantity",
@@ -508,6 +485,7 @@ class Evaluator:
             score += 20
 
         return score
+
 
     def _place_score(
         self,
