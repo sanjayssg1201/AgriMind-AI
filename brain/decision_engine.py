@@ -12,6 +12,7 @@ from brain.economy import EconomyManager
 from brain.risk_analyzer import RiskAnalyzer
 from brain.opponent_model import OpponentModel
 from brain.strategy_intelligence import StrategyIntelligence
+from brain.strategic_planner import StrategicPlanner 
 from brain.action_candidate import ActionCandidate
 
 from models.game_state import GameState
@@ -50,7 +51,11 @@ class DecisionEngine:
         )
         self.strategy = StrategyIntelligence(
     self.economy
+        )
+        self.strategic_planner = StrategicPlanner(
+    self.strategy
 )
+        
 
     # =====================================================
     # Public API
@@ -131,17 +136,7 @@ class DecisionEngine:
 
         return best
 
-    # =====================================================
-    # Selection
-    # =====================================================
-
-    def _select_best(
-        self,
-        state: GameState,
-        candidates: list[ActionCandidate],
-    ) -> ActionCandidate | None:
-
-        raise NotImplementedError
+   
     # =====================================================
     # Selection
     # =====================================================
@@ -208,13 +203,16 @@ class DecisionEngine:
             candidate,
         )
 
-        candidate.score = score
+        # --------------------------------------------
+        # Strategic Planning
+        # --------------------------------------------
 
         score += self._strategic_bonus(
-    state,
-    candidate,
-)
+            state,
+            candidate,
+        )
 
+        candidate.score = score
     # =====================================================
     # Economy Bonus
     # =====================================================
@@ -520,59 +518,12 @@ class DecisionEngine:
 
 
     def _strategic_bonus(
-        self,
-        state: GameState,
-        candidate: ActionCandidate,
-    ) -> float:
+    self,
+    state: GameState,
+    candidate: ActionCandidate,
+) -> float:
 
-        recommendation = self.strategy.risk_adjusted_recommendation(
-    state
-)
-
-        task = candidate.task
-
-        strategic_map = {
-            "PRESERVE_CAPITAL": {
-                "BUY_PRODUCT": -30,
-                "BUY_ANIMAL": -25,
-                "BUY_SEED": -10,
-                "EXPAND": -40,
-                "SELL": 15,
-            },
-
-            "EXPAND": {
-                "EXPAND": 35,
-                "BUY_PRODUCT": -10,
-                "BUY_ANIMAL": 10,
-                "SELL": 5,
-            },
-
-            "GROW": {
-                "BUY_SEED": 30,
-                "PLANT": 30,
-                "BUY_ANIMAL": 5,
-                "SELL": 0,
-            },
-
-            "BUILD_LIVESTOCK": {
-                "BUY_ANIMAL": 35,
-                "PLACE": 25,
-                "BUY_SEED": 5,
-            },
-
-            "PRODUCE": {
-                "BUY_SEED": 25,
-                "PLANT": 30,
-                "PLACE": 15,
-            },
-
-            "OPTIMIZE_MARKET": {
-                "SELL": 20,
-                "BUY_PRODUCT": 15,
-            },
-        }
-
-        return strategic_map.get(
-            recommendation,
-            {},
-        ).get(task, 0)
+        return self.strategic_planner.score(
+            state,
+            candidate,
+        )
