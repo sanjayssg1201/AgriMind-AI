@@ -124,17 +124,17 @@ class Evaluator:
             )
         elif task == "BUY_PRODUCT":
 
-           score = self._buy_product_score(
-        state,
-        candidate,
-    )
+            score = self._buy_product_score(
+                state,
+                candidate,
+            )
 
         elif task == "PLACE":
 
             score = self._place_score(
-        state,
-        candidate,
-    )
+                state,
+                candidate,
+            )
 
         elif task == "EXPAND":
 
@@ -146,13 +146,6 @@ class Evaluator:
 
             score = self._hire_score(
                 state,
-            )
-
-        elif task == "BUY_PRODUCT":
-
-            score = self._buy_product_score(
-        state,
-        candidate,
             )
 
         candidate.score = score
