@@ -601,6 +601,25 @@ class DecisionEngine:
 
         return future_score * 0.5
 
+    def _learning_bonus(
+        self,
+        candidate: ActionCandidate,
+    ) -> float:
+        """Adjust score using historical performance of this action type."""
+
+        action_type = candidate.action
+
+        success_rate = self.memory.strategy_success_rate(
+            action_type
+        )
+
+        if success_rate == 0.5:
+            return 0.0
+
+        bonus = (success_rate - 0.5) * 20.0
+
+        return max(-10.0, min(10.0, bonus))
+
     # =====================================================
     # Experience Learning
     # =====================================================
@@ -653,24 +672,7 @@ class DecisionEngine:
             }
         )
 
-    def _learning_bonus(
-        self,
-        candidate: ActionCandidate,
-    ) -> float:
-        """Adjust candidate score using historical decision performance."""
-
-        action_type = candidate.action
-
-        success_rate = self.memory.strategy_success_rate(
-            action_type
-        )
-
-        # Neutral when there is insufficient history.
-        if success_rate == 0.5:
-            return 0.0
-
-        # Convert success rate into a small bounded modifier.
-        return (success_rate - 0.5) * 20.0
+    
 
     # =====================================================
     # Memory Helpers
