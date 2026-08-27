@@ -1,567 +1,358 @@
 """
 core/actions.py
 
-Action definitions and action builders for AgriMind AI.
+Action definitions and builders for AgriMind AI.
+
+This module provides a stable internal representation of actions.
+The conversion to Kaggriculture's external API format is handled
+by main.py.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
-from brain.action_candidate import ActionCandidate
 
-
-# =========================================================
+# ==========================================================
 # Action
-# =========================================================
+# ==========================================================
 
-@dataclass
+@dataclass(slots=True)
 class Action:
     """
-    Represents one action sent to the Kaggle environment.
+    Internal representation of one AI action.
+
+    Parameters
+    ----------
+    action_type:
+        Action name, e.g. HARVEST, PLANT, SELL.
+    target:
+        Target tile, crop, animal, or product.
+    metadata:
+        Additional action parameters.
     """
 
-    actor_id: int
     action_type: str
-    target: str | None = None
-    x: int | None = None
-    y: int | None = None
-    quantity: int | None = None
+    target: Any = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self):
+        self.action_type = str(self.action_type).upper()
 
-# =========================================================
-# Action Factory
-# =========================================================
+        if self.metadata is None:
+            self.metadata = {}
 
-class ActionFactory:
-    """
-    Creates individual Action objects.
-    """
-
-    @staticmethod
-    def move(
-        actor_id,
-        x,
-        y,
-    ):
-        return Action(
-            actor_id=actor_id,
-            action_type="MOVE",
-            x=x,
-            y=y,
-        )
-
-    @staticmethod
-    def plant(
-        actor_id,
-        crop,
-    ):
-        return Action(
-            actor_id=actor_id,
-            action_type="PLANT",
-            target=crop,
-        )
-
-    @staticmethod
-    def harvest(
-        actor_id,
-    ):
-        return Action(
-            actor_id=actor_id,
-            action_type="HARVEST",
-        )
-
-    @staticmethod
-    def water(
-        actor_id,
-    ):
-        return Action(
-            actor_id=actor_id,
-            action_type="WATER",
-        )
-
-    @staticmethod
-    def fertilize(
-        actor_id,
-    ):
-        return Action(
-            actor_id=actor_id,
-            action_type="FERTILIZE",
-        )
-
-    @staticmethod
-    def feed(
-        actor_id,
-    ):
-        return Action(
-            actor_id=actor_id,
-            action_type="FEED",
-        )
-
-    @staticmethod
-    def care(
-        actor_id,
-    ):
-        return Action(
-            actor_id=actor_id,
-            action_type="CARE",
-        )
-
-    @staticmethod
-    def pass_turn(
-        actor_id=0,
-    ):
-        return Action(
-            actor_id=actor_id,
-            action_type="PASS",
+    def __repr__(self):
+        return (
+            f"Action("
+            f"type={self.action_type}, "
+            f"target={self.target}, "
+            f"metadata={self.metadata})"
         )
 
 
-# =========================================================
+# ==========================================================
 # Action Builder
-# =========================================================
+# ==========================================================
 
 class ActionBuilder:
     """
-    Converts internal action candidates into a simple
-    external action representation.
+    Creates internal Action objects.
 
-    The final Kaggriculture formatting is handled by main.py.
+    IMPORTANT:
+    This class does not know about Kaggriculture's external
+    action dictionary. That conversion belongs to main.py.
+
+    Keeping this separation means the AI can change its
+    decision-making logic without requiring changes to the
+    submission boundary.
     """
 
-    # =====================================================
-    # Build
-    # =====================================================
+    # ------------------------------------------------------
+    # Generic
+    # ------------------------------------------------------
 
+    @staticmethod
     def build(
-        self,
-        candidate: ActionCandidate | None,
-    ):
+        action_type: str,
+        target: Any = None,
+        **metadata,
+    ) -> Action:
 
-        if candidate is None:
-            return self.pass_turn()
-
-        task = str(
-            getattr(
-                candidate,
-                "task",
-                "",
-            )
-        ).upper()
-
-        handlers = {
-            "HARVEST": self.harvest,
-            "PLANT": self.plant,
-            "WATER": self.water,
-            "FERTILIZE": self.fertilize,
-            "FEED": self.feed,
-            "CARE": self.care,
-            "COLLECT": self.collect,
-            "COLLECT_FERTILIZER": self.collect_fertilizer,
-            "SELL": self.sell,
-            "BUY_SEED": self.buy_seed,
-            "BUY_ANIMAL": self.buy_animal,
-            "PLACE": self.place,
-            "BUY_PRODUCT": self.buy_product,
-            "EXPAND": self.expand,
-            "HIRE": self.hire,
-        }
-
-        handler = handlers.get(task)
-
-        if handler is None:
-            return self.pass_turn(
-                actor_id=self._worker(candidate)
-            )
-
-        return handler(candidate)
-
-    # =====================================================
-    # Pass
-    # =====================================================
-
-    def pass_turn(
-        self,
-        actor_id=0,
-    ):
-
-        return {
-            "action": "PASS",
-            "actor_id": actor_id,
-            "target": None,
-            "metadata": {},
-        }
-
-    # =====================================================
-    # Helpers
-    # =====================================================
-
-    def _worker(
-        self,
-        candidate: ActionCandidate,
-    ):
-
-        return getattr(
-            candidate,
-            "worker_id",
-            0,
+        return Action(
+            action_type=str(action_type).upper(),
+            target=target,
+            metadata=metadata,
         )
 
-    def _position(
-        self,
-        candidate: ActionCandidate,
-    ):
+    # ------------------------------------------------------
+    # Farmer / Farmhand actions
+    # ------------------------------------------------------
 
-        tile = getattr(
-            candidate,
-            "target",
-            None,
+    @staticmethod
+    def harvest(tile: Any) -> Action:
+
+        return Action(
+            action_type="HARVEST",
+            target=tile,
         )
 
-        if tile is None:
-            return 0, 0
-
-        return tile.x, tile.y
-
-    # =====================================================
-    # Harvest
-    # =====================================================
-
-    def harvest(
-        self,
-        candidate: ActionCandidate,
-    ):
-
-        x, y = self._position(candidate)
-
-        return self._serialize(
-            action="HARVEST",
-            worker=self._worker(candidate),
-            target=(x, y),
-            metadata=(
-                getattr(
-                    candidate,
-                    "metadata",
-                    {},
-                )
-                or {}
-            ),
-        )
-
-    # =====================================================
-    # Plant
-    # =====================================================
-
+    @staticmethod
     def plant(
-        self,
-        candidate: ActionCandidate,
-    ):
+        tile: Any,
+        crop: str,
+    ) -> Action:
 
-        x, y = self._position(candidate)
-
-        metadata = (
-            getattr(
-                candidate,
-                "metadata",
-                {},
-            )
-            or {}
-        )
-
-        crop = metadata.get(
-            "crop"
-        )
-
-        return self._serialize(
-            action="PLANT",
-            worker=self._worker(candidate),
-            target=(x, y),
+        return Action(
+            action_type="PLANT",
+            target=tile,
             metadata={
-                "crop": crop,
+                "crop": str(crop).upper(),
             },
         )
 
-    # =====================================================
-    # Water
-    # =====================================================
+    @staticmethod
+    def water(tile: Any) -> Action:
 
-    def water(
-        self,
-        candidate: ActionCandidate,
-    ):
-
-        return self._tile_action(
-            "WATER",
-            candidate,
+        return Action(
+            action_type="WATER",
+            target=tile,
         )
 
-    # =====================================================
-    # Fertilize
-    # =====================================================
+    @staticmethod
+    def fertilize(tile: Any) -> Action:
 
-    def fertilize(
-        self,
-        candidate: ActionCandidate,
-    ):
-
-        return self._tile_action(
-            "FERTILIZE",
-            candidate,
+        return Action(
+            action_type="FERTILIZE",
+            target=tile,
         )
 
-    # =====================================================
-    # Feed
-    # =====================================================
+    @staticmethod
+    def feed(tile: Any) -> Action:
 
-    def feed(
-        self,
-        candidate: ActionCandidate,
-    ):
-
-        return self._tile_action(
-            "FEED",
-            candidate,
+        return Action(
+            action_type="FEED",
+            target=tile,
         )
 
-    # =====================================================
-    # Care
-    # =====================================================
+    @staticmethod
+    def care(tile: Any) -> Action:
 
-    def care(
-        self,
-        candidate: ActionCandidate,
-    ):
-
-        return self._tile_action(
-            "CARE",
-            candidate,
+        return Action(
+            action_type="CARE",
+            target=tile,
         )
 
-    # =====================================================
-    # Collect
-    # =====================================================
+    @staticmethod
+    def collect(tile: Any) -> Action:
 
-    def collect(
-        self,
-        candidate: ActionCandidate,
-    ):
-
-        return self._tile_action(
-            "COLLECT",
-            candidate,
+        return Action(
+            action_type="COLLECT",
+            target=tile,
         )
 
-    # =====================================================
-    # Collect Fertilizer
-    # =====================================================
+    @staticmethod
+    def collect_fertilizer(tile: Any) -> Action:
 
-    def collect_fertilizer(
-        self,
-        candidate: ActionCandidate,
-    ):
-
-        return self._tile_action(
-            "COLLECT_FERTILIZER",
-            candidate,
+        return Action(
+            action_type="COLLECT_FERTILIZER",
+            target=tile,
         )
 
-    # =====================================================
-    # Tile Helper
-    # =====================================================
-
-    def _tile_action(
-        self,
-        action: str,
-        candidate: ActionCandidate,
-    ):
-
-        x, y = self._position(candidate)
-
-        return self._serialize(
-            action=action,
-            worker=self._worker(candidate),
-            target=(x, y),
-            metadata=(
-                getattr(
-                    candidate,
-                    "metadata",
-                    {},
-                )
-                or {}
-            ),
-        )
-
-    # =====================================================
-    # Sell
-    # =====================================================
-
-    def sell(
-        self,
-        candidate: ActionCandidate,
-    ):
-
-        product = getattr(
-            candidate,
-            "target",
-            None,
-        )
-
-        metadata = (
-            getattr(
-                candidate,
-                "metadata",
-                {},
-            )
-            or {}
-        )
-
-        quantity = metadata.get(
-            "quantity",
-            1,
-        )
-
-        return self._serialize(
-            action="SELL",
-            worker=self._worker(candidate),
-            target=product,
-            metadata={
-                "quantity": quantity,
-            },
-        )
-
-    # =====================================================
-    # Buy Seed
-    # =====================================================
-
-    def buy_seed(
-        self,
-        candidate: ActionCandidate,
-    ):
-
-        metadata = (
-            getattr(
-                candidate,
-                "metadata",
-                {},
-            )
-            or {}
-        )
-
-        crop = metadata.get(
-            "crop"
-        )
-
-        quantity = metadata.get(
-            "quantity",
-            1,
-        )
-
-        return self._serialize(
-            action="BUY_SEED",
-            worker=self._worker(candidate),
-            target=crop,
-            metadata={
-                "quantity": quantity,
-            },
-        )
-
-    # =====================================================
-    # Buy Animal
-    # =====================================================
-
-    def buy_animal(
-        self,
-        candidate: ActionCandidate,
-    ):
-
-        metadata = (
-            getattr(
-                candidate,
-                "metadata",
-                {},
-            )
-            or {}
-        )
-
-        animal = metadata.get(
-            "animal"
-        )
-
-        return self._serialize(
-            action="BUY_ANIMAL",
-            worker=self._worker(candidate),
-            target=animal,
-            metadata={},
-        )
-
-    # =====================================================
-    # Place Animal
-    # =====================================================
-
+    @staticmethod
     def place(
-        self,
-        candidate: ActionCandidate,
-    ):
+        tile: Any,
+        animal: str,
+    ) -> Action:
 
-        metadata = (
-            getattr(
-                candidate,
-                "metadata",
-                {},
-            )
-            or {}
-        )
-
-        animal = metadata.get(
-            "animal"
-        )
-
-        x, y = self._position(
-            candidate
-        )
-
-        return self._serialize(
-            action="PLACE",
-            worker=self._worker(candidate),
-            target=(x, y),
+        return Action(
+            action_type="PLACE",
+            target=tile,
             metadata={
-                "animal": animal,
+                "animal": str(animal).upper(),
             },
         )
 
-    # =====================================================
-    # Buy Product
-    # =====================================================
+    # ------------------------------------------------------
+    # Market actions
+    # ------------------------------------------------------
 
+    @staticmethod
+    def sell(
+        product: str,
+        quantity: int = 1,
+    ) -> Action:
+
+        return Action(
+            action_type="SELL",
+            target=str(product).upper(),
+            metadata={
+                "product": str(product).upper(),
+                "quantity": max(1, int(quantity)),
+            },
+        )
+
+    @staticmethod
+    def buy_seed(
+        crop: str,
+        quantity: int = 1,
+    ) -> Action:
+
+        return Action(
+            action_type="BUY_SEED",
+            target=str(crop).upper(),
+            metadata={
+                "crop": str(crop).upper(),
+                "quantity": max(1, int(quantity)),
+            },
+        )
+
+    @staticmethod
+    def buy_animal(
+        animal: str,
+        quantity: int = 1,
+    ) -> Action:
+
+        return Action(
+            action_type="BUY_ANIMAL",
+            target=str(animal).upper(),
+            metadata={
+                "animal": str(animal).upper(),
+                "quantity": max(1, int(quantity)),
+            },
+        )
+
+    @staticmethod
     def buy_product(
-        self,
-        candidate: ActionCandidate,
-    ):
+        product: str,
+        quantity: int = 1,
+    ) -> Action:
 
-        product = getattr(
-            candidate,
-            "target",
-            None,
-        )
-
-        metadata = (
-            getattr(
-                candidate,
-                "metadata",
-                {},
-            )
-            or {}
-        )
-
-        quantity = metadata.get(
-            "quantity",
-            1,
-        )
-
-        return self._serialize(
-            action="BUY_PRODUCT",
-            worker=self._worker(candidate),
-            target=product,
+        return Action(
+            action_type="BUY_PRODUCT",
+            target=str(product).upper(),
             metadata={
-                "quantity": quantity,
+                "product": str(product).upper(),
+                "quantity": max(1, int(quantity)),
             },
         )
+
+    @staticmethod
+    def hire() -> Action:
+
+        return Action(
+            action_type="HIRE",
+        )
+
+    @staticmethod
+    def expand() -> Action:
+
+        return Action(
+            action_type="EXPAND",
+        )
+
+    # ------------------------------------------------------
+    # No-op
+    # ------------------------------------------------------
+
+    @staticmethod
+    def pass_action() -> Action:
+
+        return Action(
+            action_type="PASS",
+        )
+
+    @staticmethod
+    def wait() -> Action:
+
+        return Action(
+            action_type="WAIT",
+        )
+
+
+# ==========================================================
+# Action Type Registry
+# ==========================================================
+
+FARMER_ACTIONS = frozenset({
+    "HARVEST",
+    "PLANT",
+    "WATER",
+    "FERTILIZE",
+    "FEED",
+    "CARE",
+    "COLLECT",
+    "COLLECT_FERTILIZER",
+    "PLACE",
+})
+
+
+MARKET_ACTIONS = frozenset({
+    "SELL",
+    "BUY_SEED",
+    "BUY_ANIMAL",
+    "BUY_PRODUCT",
+    "HIRE",
+    "EXPAND",
+})
+
+
+NO_OP_ACTIONS = frozenset({
+    "PASS",
+    "WAIT",
+})
+
+
+ALL_ACTIONS = (
+    FARMER_ACTIONS
+    | MARKET_ACTIONS
+    | NO_OP_ACTIONS
+)
+
+
+# ==========================================================
+# Validation Helpers
+# ==========================================================
+
+def is_valid_action_type(action_type: str) -> bool:
+    """
+    Check whether an action type is supported.
+    """
+
+    if not isinstance(action_type, str):
+        return False
+
+    return action_type.upper() in ALL_ACTIONS
+
+
+def is_farmer_action(action_type: str) -> bool:
+    """
+    Check whether an action belongs in the farmer/farmhand
+    action slot.
+    """
+
+    if not isinstance(action_type, str):
+        return False
+
+    return action_type.upper() in FARMER_ACTIONS
+
+
+def is_market_action(action_type: str) -> bool:
+    """
+    Check whether an action belongs in the market order list.
+    """
+
+    if not isinstance(action_type, str):
+        return False
+
+    return action_type.upper() in MARKET_ACTIONS
+
+
+def is_no_op(action_type: str) -> bool:
+    """
+    Check whether an action represents no operation.
+    """
+
+    if not isinstance(action_type, str):
+        return False
+
+    return action_type.upper() in NO_OP_ACTIONS
