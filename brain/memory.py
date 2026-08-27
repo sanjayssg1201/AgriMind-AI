@@ -426,3 +426,49 @@ class BrainMemory:
             f"experiences={self.experience_count}"
             ")"
         )
+
+    def record_decision_outcome(
+        self,
+        action_type: str,
+        expected_reward: float,
+        actual_reward: float,
+    ) -> None:
+        """Record the outcome of a completed decision."""
+
+        if not hasattr(self, "decision_outcomes"):
+            self.decision_outcomes = []
+
+        self.decision_outcomes.append(
+            {
+                "action_type": action_type,
+                "expected_reward": expected_reward,
+                "actual_reward": actual_reward,
+                "error": actual_reward - expected_reward,
+            }
+        )
+
+
+    def strategy_success_rate(
+        self,
+        action_type: str,
+    ) -> float:
+        """Return the historical success rate for an action type."""
+
+        outcomes = getattr(self, "decision_outcomes", [])
+
+        matching = [
+            outcome
+            for outcome in outcomes
+            if outcome["action_type"] == action_type
+        ]
+
+        if not matching:
+            return 0.5
+
+        successful = sum(
+            1
+            for outcome in matching
+            if outcome["actual_reward"] >= outcome["expected_reward"]
+        )
+
+        return successful / len(matching)
