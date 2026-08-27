@@ -1,5 +1,3 @@
-Yes. Paste the following into `README.md`. It is written around the architecture we have **actually verified so far**, without claiming that the remaining brain/agent components are complete.
-
 ```markdown
 # AgriMind AI
 
