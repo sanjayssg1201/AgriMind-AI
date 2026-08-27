@@ -478,7 +478,11 @@ class EconomyManager:
         if market_inventory <= 0:
             return 0.0
 
-        history = self.memory.market_inventory_history.get(product)
+        history = getattr(
+    self.memory,
+    "market_inventory_history",
+    {},
+).get(product)
 
         if not history:
             return 0.0

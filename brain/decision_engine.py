@@ -2,6 +2,17 @@
 brain/decision_engine.py
 
 Master decision engine for AgriMind AI.
+
+Combines:
+- task generation
+- worker scheduling
+- action evaluation
+- economy intelligence
+- risk analysis
+- opponent modelling
+- strategic planning
+- future planning
+- memory
 """
 
 from brain.memory import BrainMemory
@@ -23,13 +34,21 @@ class DecisionEngine:
     """
     Main AI controller.
 
-    Responsible for converting a GameState into the
-    highest-scoring ActionCandidate.
+    Converts a GameState into the highest-scoring
+    ActionCandidate.
     """
 
     def __init__(self):
 
+        # -------------------------------------------------
+        # Core memory
+        # -------------------------------------------------
+
         self.memory = BrainMemory()
+
+        # -------------------------------------------------
+        # Decision pipeline
+        # -------------------------------------------------
 
         self.task_generator = TaskGenerator()
 
@@ -38,6 +57,10 @@ class DecisionEngine:
         self.evaluator = Evaluator(
             self.memory
         )
+
+        # -------------------------------------------------
+        # Intelligence layers
+        # -------------------------------------------------
 
         self.economy = EconomyManager(
             self.memory
@@ -70,18 +93,20 @@ class DecisionEngine:
         state: GameState,
     ) -> ActionCandidate | None:
         """
-        Returns the best action for this turn.
+        Return the best action for the current turn.
         """
 
-        # --------------------------------------------
+        # -------------------------------------------------
         # Update memory
-        # --------------------------------------------
+        # -------------------------------------------------
 
-        self.memory.update(state)
+        self.memory.update(
+            state
+        )
 
-        # --------------------------------------------
+        # -------------------------------------------------
         # Generate tasks
-        # --------------------------------------------
+        # -------------------------------------------------
 
         tasks = self.task_generator.generate(
             state
@@ -90,9 +115,9 @@ class DecisionEngine:
         if not tasks:
             return None
 
-        # --------------------------------------------
+        # -------------------------------------------------
         # Assign workers
-        # --------------------------------------------
+        # -------------------------------------------------
 
         candidates = self.scheduler.assign(
             state,
@@ -102,9 +127,9 @@ class DecisionEngine:
         if not candidates:
             return None
 
-        # --------------------------------------------
+        # -------------------------------------------------
         # Evaluate candidates
-        # --------------------------------------------
+        # -------------------------------------------------
 
         evaluated = []
 
@@ -117,16 +142,23 @@ class DecisionEngine:
                 )
             )
 
-        # --------------------------------------------
+        if not evaluated:
+            return None
+
+        # -------------------------------------------------
         # Select best candidate
-        # --------------------------------------------
+        # -------------------------------------------------
 
         best = self._select_best(
             state,
             evaluated,
         )
 
-        if best:
+        # -------------------------------------------------
+        # Remember selected action
+        # -------------------------------------------------
+
+        if best is not None:
 
             self.memory.remember_action(
                 best.action,
@@ -144,6 +176,10 @@ class DecisionEngine:
         state: GameState,
         candidates: list[ActionCandidate],
     ) -> ActionCandidate | None:
+        """
+        Apply global intelligence adjustments and return
+        the highest final-scoring candidate.
+        """
 
         if not candidates:
             return None
@@ -156,7 +192,7 @@ class DecisionEngine:
             )
 
         candidates.sort(
-            key=lambda c: c.final_score,
+            key=lambda candidate: candidate.final_score,
             reverse=True,
         )
 
@@ -171,48 +207,51 @@ class DecisionEngine:
         state: GameState,
         candidate: ActionCandidate,
     ) -> None:
+        """
+        Apply all high-level intelligence layers.
+        """
 
         score = candidate.score
 
-        # --------------------------------------------
+        # -------------------------------------------------
         # Economy
-        # --------------------------------------------
+        # -------------------------------------------------
 
         score += self._economy_bonus(
             state,
             candidate,
         )
 
-        # --------------------------------------------
+        # -------------------------------------------------
         # Risk
-        # --------------------------------------------
+        # -------------------------------------------------
 
         score -= self._risk_penalty(
             state,
             candidate,
         )
 
-        # --------------------------------------------
+        # -------------------------------------------------
         # Opponent
-        # --------------------------------------------
+        # -------------------------------------------------
 
         score += self._opponent_bonus(
             state,
             candidate,
         )
 
-        # --------------------------------------------
+        # -------------------------------------------------
         # Strategic Planning
-        # --------------------------------------------
+        # -------------------------------------------------
 
         score += self._strategic_bonus(
             state,
             candidate,
         )
 
-        # --------------------------------------------
+        # -------------------------------------------------
         # Future Planning
-        # --------------------------------------------
+        # -------------------------------------------------
 
         score += self._future_bonus(
             state,
@@ -230,12 +269,23 @@ class DecisionEngine:
         state: GameState,
         candidate: ActionCandidate,
     ) -> float:
+        """
+        Adjust candidate score using market/economic
+        intelligence.
+        """
 
         task = candidate.task
+
+        # -------------------------------------------------
+        # SELL
+        # -------------------------------------------------
 
         if task == "SELL":
 
             product = candidate.target
+
+            if not product:
+                return 0.0
 
             price = state.market.price(
                 product
@@ -245,7 +295,7 @@ class DecisionEngine:
                 product,
                 price,
             ):
-                return 20
+                return 20.0
 
             dynamic_score = (
                 self.economy.dynamic_market_score(
@@ -255,25 +305,51 @@ class DecisionEngine:
             )
 
             if dynamic_score > 0:
-                return dynamic_score
+                return float(
+                    dynamic_score
+                )
 
-            return -15
+            return -15.0
 
-        if task == "EXPAND":
+        # -------------------------------------------------
+        # BUY PRODUCT
+        # -------------------------------------------------
 
-            return self.economy.expansion_roi(
-                2000,
-                3000,
+        if task == "BUY_PRODUCT":
+
+            product = candidate.target
+
+            if not product:
+                return 0.0
+
+            dynamic_score = (
+                self.economy.dynamic_market_score(
+                    state,
+                    product,
+                )
             )
 
-        if task == "HIRE":
-
-            return self.economy.hire_roi(
-                1000,
-                1800,
+            return float(
+                dynamic_score
             )
 
-        return 0
+        # -------------------------------------------------
+        # BUY SEED
+        # -------------------------------------------------
+
+        if task == "BUY_SEED":
+
+            return 5.0
+
+        # -------------------------------------------------
+        # BUY ANIMAL
+        # -------------------------------------------------
+
+        if task == "BUY_ANIMAL":
+
+            return 5.0
+
+        return 0.0
 
     # =====================================================
     # Risk Penalty
@@ -284,55 +360,76 @@ class DecisionEngine:
         state: GameState,
         candidate: ActionCandidate,
     ) -> float:
+        """
+        Apply risk-based penalties.
+
+        RiskAnalyzer implementations may expose different
+        helper methods, so this layer remains defensive.
+        """
 
         task = candidate.task
 
-        # --------------------------------------------
-        # Crop actions
-        # --------------------------------------------
+        # -------------------------------------------------
+        # Try task-specific risk score
+        # -------------------------------------------------
 
-        if task in (
-            "HARVEST",
-            "FERTILIZE",
+        try:
+
+            if hasattr(
+                self.risk,
+                "risk_score",
+            ):
+
+                risk_score = self.risk.risk_score(
+                    state,
+                    candidate,
+                )
+
+                if risk_score is not None:
+                    return max(
+                        0.0,
+                        float(risk_score),
+                    )
+
+        except (
+            AttributeError,
+            TypeError,
+            ValueError,
         ):
+            pass
 
-            tile = candidate.target
+        # -------------------------------------------------
+        # Market concentration risk
+        # -------------------------------------------------
 
-            if tile.is_plant:
+        if task == "BUY_PRODUCT":
 
-                return self.risk.crop_risk(
-                    tile.crop
-                )
+            product = candidate.target
 
-        # --------------------------------------------
-        # Water directly reduces crop risk.
-        # Therefore current crop risk should not
-        # be charged as a penalty to WATER.
-        # --------------------------------------------
+            if product:
 
-        if task == "WATER":
+                try:
 
-            return 0
+                    risk_score = (
+                        self.economy.market_risk_score(
+                            state,
+                            product,
+                        )
+                    )
 
-        # --------------------------------------------
-        # Animal collection
-        # --------------------------------------------
+                    return max(
+                        0.0,
+                        float(risk_score) * 0.25,
+                    )
 
-        if task == "COLLECT":
+                except (
+                    AttributeError,
+                    TypeError,
+                    ValueError,
+                ):
+                    pass
 
-            tile = candidate.target
-
-            if tile.has_animal:
-
-                return self.risk.animal_risk(
-                    tile.animal
-                )
-
-        # --------------------------------------------
-        # FEED and CARE directly reduce animal risk.
-        # --------------------------------------------
-
-        return 0
+        return 0.0
 
     # =====================================================
     # Opponent Bonus
@@ -343,30 +440,55 @@ class DecisionEngine:
         state: GameState,
         candidate: ActionCandidate,
     ) -> float:
+        """
+        Adjust the score according to opponent behaviour.
+        """
 
-        prediction = (
-            self.opponent.predict_next_action(
-                state
-            )
-        )
+        try:
 
-        if (
-            prediction == "EXPAND"
-            and
-            candidate.task == "EXPAND"
+            if hasattr(
+                self.opponent,
+                "action_bonus",
+            ):
+
+                value = self.opponent.action_bonus(
+                    state,
+                    candidate,
+                )
+
+                if value is not None:
+                    return float(value)
+
+        except (
+            AttributeError,
+            TypeError,
+            ValueError,
         ):
+            pass
 
-            return 10
+        try:
 
-        if (
-            prediction == "SELL"
-            and
-            candidate.task == "SELL"
+            if hasattr(
+                self.opponent,
+                "strategic_pressure",
+            ):
+
+                value = self.opponent.strategic_pressure(
+                    state,
+                    candidate,
+                )
+
+                if value is not None:
+                    return float(value)
+
+        except (
+            AttributeError,
+            TypeError,
+            ValueError,
         ):
+            pass
 
-            return 5
-
-        return 0
+        return 0.0
 
     # =====================================================
     # Strategic Bonus
@@ -377,14 +499,88 @@ class DecisionEngine:
         state: GameState,
         candidate: ActionCandidate,
     ) -> float:
+        """
+        Apply strategic-planner guidance.
+        """
 
-        return self.strategic_planner.score(
-            state,
-            candidate,
-        )
+        try:
+
+            recommendation = (
+                self.strategy.risk_adjusted_recommendation(
+                    state
+                )
+            )
+
+        except (
+            AttributeError,
+            TypeError,
+            ValueError,
+        ):
+
+            return 0.0
+
+        task = candidate.task
+
+        # -------------------------------------------------
+        # Strategic alignment
+        # -------------------------------------------------
+
+        if (
+            recommendation == "GROW"
+            and task in (
+                "PLANT",
+                "WATER",
+                "FERTILIZE",
+            )
+        ):
+            return 10.0
+
+        if (
+            recommendation == "PRODUCE"
+            and task in (
+                "PLANT",
+                "HARVEST",
+                "WATER",
+            )
+        ):
+            return 10.0
+
+        if (
+            recommendation == "BUILD_LIVESTOCK"
+            and task == "BUY_ANIMAL"
+        ):
+            return 15.0
+
+        if (
+            recommendation == "EXPAND"
+            and task == "EXPAND"
+        ):
+            return 15.0
+
+        if (
+            recommendation == "OPTIMIZE_MARKET"
+            and task in (
+                "SELL",
+                "BUY_PRODUCT",
+            )
+        ):
+            return 10.0
+
+        if (
+            recommendation == "PRESERVE_CAPITAL"
+            and task in (
+                "BUY_PRODUCT",
+                "BUY_ANIMAL",
+                "EXPAND",
+                "HIRE",
+            )
+        ):
+            return -15.0
+
+        return 0.0
 
     # =====================================================
-    # Future Planning Bonus
+    # Future Bonus
     # =====================================================
 
     def _future_bonus(
@@ -392,189 +588,115 @@ class DecisionEngine:
         state: GameState,
         candidate: ActionCandidate,
     ) -> float:
-        """
-        Adds a controlled bonus for actions that create
-        useful future opportunities.
-
-        Future planning is intentionally weighted below
-        the primary economic and risk layers.
-        """
 
         future_score = self.future_planner.score(
             state,
             candidate,
         )
 
-        # Keep future planning subordinate to the
-        # existing economic and risk layers.
+        if future_score <= 0:
+            return 0.0
+
         return future_score * 0.5
 
     # =====================================================
-    # Fallback Decision
+    # Experience Learning
     # =====================================================
 
-    def fallback(
+    def record_outcome(
         self,
-        state: GameState,
-    ) -> ActionCandidate | None:
+        action: ActionCandidate | Any,
+        reward: float,
+        metadata: dict | None = None,
+    ) -> None:
         """
-        Returns a safe fallback action if no valid
-        candidate is available.
+        Record the result of a previously selected action.
+
+        This allows BrainMemory to accumulate action/reward
+        experiences for future learning.
         """
 
-        tasks = self.task_generator.generate(
-            state
+        if isinstance(
+            action,
+            ActionCandidate,
+        ):
+
+            action_name = action.action
+
+            if metadata is None:
+                metadata = {}
+
+            metadata = {
+                **metadata,
+                "task": action.task,
+                "target": action.target,
+                "score": action.score,
+            }
+
+        else:
+
+            action_name = action
+
+        self.memory.remember_experience(
+            action_name,
+            reward,
+            metadata,
         )
 
-        if not tasks:
-            return None
-
-        candidates = self.scheduler.assign(
-            state,
-            tasks,
+        self.memory.remember_outcome(
+            {
+                "action": action_name,
+                "reward": float(reward),
+                "metadata": metadata or {},
+            }
         )
 
-        if not candidates:
-            return None
-
-        return candidates[0]
-
     # =====================================================
-    # Diagnostics
+    # Memory Helpers
     # =====================================================
 
-    def evaluate_all(
+    def reset(self) -> None:
+        """
+        Reset the decision engine's persistent memory.
+        """
+
+        self.memory.reset()
+
+    def action_average_reward(
         self,
-        state: GameState,
-    ) -> list[ActionCandidate]:
+        action: Any,
+    ) -> float:
         """
-        Returns every evaluated candidate.
-        Useful for debugging and testing.
+        Return historical average reward for an action.
         """
 
-        tasks = self.task_generator.generate(
-            state
+        return self.memory.action_average_reward(
+            action
         )
 
-        candidates = self.scheduler.assign(
-            state,
-            tasks,
+    def action_experience_count(
+        self,
+        action: Any,
+    ) -> int:
+        """
+        Return the number of historical experiences
+        for an action.
+        """
+
+        return self.memory.action_experience_count(
+            action
         )
-
-        results = []
-
-        for candidate in candidates:
-
-            candidate = self.evaluator.evaluate(
-                state,
-                candidate,
-            )
-
-            self._apply_global_adjustments(
-                state,
-                candidate,
-            )
-
-            results.append(candidate)
-
-        results.sort(
-            key=lambda c: c.final_score,
-            reverse=True,
-        )
-
-        return results
 
     # =====================================================
     # Debug
     # =====================================================
 
-    def print_rankings(
-        self,
-        state: GameState,
-    ) -> None:
-        """
-        Prints ranked candidate actions.
-        """
-
-        candidates = self.evaluate_all(
-            state
-        )
-
-        print(
-            "\n===== Decision Rankings ====="
-        )
-
-        for i, candidate in enumerate(
-            candidates,
-            start=1,
-        ):
-
-            print(
-                f"{i:02d}. "
-                f"{candidate.task:<20}"
-                f"Score={candidate.final_score:.2f}"
-            )
-
-    # =====================================================
-    # Memory Access
-    # =====================================================
-
-    def memory_state(self) -> BrainMemory:
-        """
-        Returns the internal memory object.
-        """
-
-        return self.memory
-
-    # =====================================================
-    # Reset
-    # =====================================================
-
-    def reset(self) -> None:
-        """
-        Resets the AI memory.
-        """
-
-        self.memory.reset()
-
-    # =====================================================
-    # Statistics
-    # =====================================================
-
-    def statistics(self) -> dict:
-        """
-        Returns runtime statistics.
-        """
-
-        return {
-            "turns": len(
-                self.memory.action_history
-            ),
-
-            "actions": len(
-                self.memory.action_history
-            ),
-
-            "money_samples": len(
-                self.memory.money_history
-            ),
-
-            "opponent_samples": len(
-                self.memory.opponent_money_history
-            ),
-
-            "tracked_products": len(
-                self.memory.market_price_history
-            ),
-        }
-
-    # =====================================================
-    # String Representation
-    # =====================================================
-
-    def __repr__(self):
+    def __repr__(self) -> str:
 
         return (
             "DecisionEngine("
-            f"history={len(self.memory.action_history)})"
+            f"states={self.memory.state_count}, "
+            f"actions={self.memory.action_count}, "
+            f"experiences={self.memory.experience_count}"
+            ")"
         )

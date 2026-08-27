@@ -1,245 +1,428 @@
 """
 brain/memory.py
 
-Persistent memory for AgriMind AI.
+Memory and learning system for AgriMind AI.
 
-Stores information across turns that is not provided
-directly by the Kaggriculture observation.
+Stores:
+- observed game states
+- selected actions
+- action scores
+- outcomes
+- action/reward experiences
+- historical market prices
 """
 
 from dataclasses import dataclass, field
-from collections import deque
-
 from typing import Any
 
-from models.game_state import GameState
 
-
-@dataclass(slots=True)
+@dataclass
 class BrainMemory:
     """
-    Stores historical information for the AI.
+    Persistent memory used by the AgriMind brain.
+
+    Stores observations and previous decisions so that
+    economy, strategy, risk, and planning components can
+    use historical information.
     """
 
-    # =====================================================
-    # Current State
-    # =====================================================
+    # ==================================================
+    # Core Memory
+    # ==================================================
 
-    previous_state: GameState | None = None
-
-    current_state: GameState | None = None
-
-    # =====================================================
-    # Economy
-    # =====================================================
-
-    money_history: deque = field(
-        default_factory=lambda: deque(maxlen=200)
+    states: list[Any] = field(
+        default_factory=list
     )
 
-    market_price_history: dict = field(
+    actions: list[Any] = field(
+        default_factory=list
+    )
+
+    outcomes: list[Any] = field(
+        default_factory=list
+    )
+
+    # ==================================================
+    # Experience Learning
+    # ==================================================
+
+    experience_history: list[dict[str, Any]] = field(
+        default_factory=list
+    )
+
+    # ==================================================
+    # Market History
+    # ==================================================
+
+    price_history: dict[str, list[float]] = field(
         default_factory=dict
     )
 
-    market_inventory_history: dict = field(
-        default_factory=dict
-    )
+    # ==================================================
+    # Configuration
+    # ==================================================
 
-    # =====================================================
-    # Opponent
-    # =====================================================
+    max_history: int = 1000
 
-    opponent_money_history: deque = field(
-        default_factory=lambda: deque(maxlen=200)
-    )
+    # ==================================================
+    # State Memory
+    # ==================================================
 
-    opponent_asset_history: deque = field(
-        default_factory=lambda: deque(maxlen=200)
-    )
-
-    # =====================================================
-    # Farm
-    # =====================================================
-
-    crop_history: deque = field(
-        default_factory=lambda: deque(maxlen=200)
-    )
-
-    animal_history: deque = field(
-        default_factory=lambda: deque(maxlen=200)
-    )
-
-    farmhand_history: deque = field(
-        default_factory=lambda: deque(maxlen=200)
-    )
-
-    # =====================================================
-    # Decisions
-    # =====================================================
-
-    action_history: deque = field(
-        default_factory=lambda: deque(maxlen=500)
-    )
-
-    score_history: deque = field(
-        default_factory=lambda: deque(maxlen=500)
-    )
-
-    # =====================================================
-    # Update
-    # =====================================================
-
-    def update(self, state: GameState):
-
-        self.previous_state = self.current_state
-
-        self.current_state = state
-
-        self.money_history.append(
-            state.money
-        )
-
-        self.opponent_money_history.append(
-            state.opponent_money
-        )
-
-        self.crop_history.append(
-            state.crops
-        )
-
-        self.animal_history.append(
-            state.animals
-        )
-
-        self.farmhand_history.append(
-            state.farmhands
-        )
-
-        self.opponent_asset_history.append(
-            state.opponent.total_assets
-        )
-
-        for item, price in state.market.prices.items():
-
-            self.market_price_history.setdefault(
-                item,
-                deque(maxlen=200)
-            ).append(price)
-
-        for item, quantity in state.market.inventory.items():
-
-            self.market_inventory_history.setdefault(
-                item,
-                deque(maxlen=200)
-            ).append(quantity)
-
-    # =====================================================
-    # Actions
-    # =====================================================
-
-    def remember_action(
+    def update(
         self,
-        action: Any,
-        score: float,
-    ):
+        state: Any,
+    ) -> None:
+        """
+        Store the latest game state.
 
-        self.action_history.append(action)
+        Also records observed market prices so that
+        historical market signals can be calculated later.
+        """
 
-        self.score_history.append(score)
+        self.states.append(state)
 
-    # =====================================================
-    # Helpers
-    # =====================================================
+        if len(self.states) > self.max_history:
+            self.states.pop(0)
 
-    def last_price(
-        self,
-        product: str,
-    ) -> float | None:
+        # ----------------------------------------------
+        # Record market prices
+        # ----------------------------------------------
 
-        history = self.market_price_history.get(product)
+        market = getattr(
+            state,
+            "market",
+            None,
+        )
 
-        if not history:
-            return None
+        if market is None:
+            return
 
-        return history[-1]
+        prices = getattr(
+            market,
+            "prices",
+            None,
+        )
 
-    def previous_price(
-        self,
-        product: str,
-    ) -> float | None:
+        if not isinstance(
+            prices,
+            dict,
+        ):
+            return
 
-        history = self.market_price_history.get(product)
+        for product, price in prices.items():
 
-        if history is None or len(history) < 2:
-            return None
+            try:
 
-        return history[-2]
+                value = float(price)
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                continue
+
+            history = self.price_history.setdefault(
+                product,
+                [],
+            )
+
+            history.append(value)
+
+            if len(history) > self.max_history:
+                history.pop(0)
+
 
     def price_trend(
         self,
         product: str,
     ) -> float:
+        """
+        Return the recent price trend for a product.
 
-        previous = self.previous_price(product)
+        Positive  -> price is increasing
+        Negative  -> price is decreasing
+        Zero      -> insufficient history or no movement
+        """
 
-        current = self.last_price(product)
+        history = self.price_history.get(
+            product,
+            [],
+        )
 
-        if previous is None or current is None:
-            return 0
+        if len(history) < 2:
+            return 0.0
 
-        return current - previous
+        previous = history[-2]
+        current = history[-1]
 
-    def average_price(
+        if previous == 0:
+            return 0.0
+
+        return (
+            (current - previous)
+            / previous
+        ) * 100.0
+
+    # ==================================================
+    # Action Memory
+    # ==================================================
+
+    def remember_action(
         self,
-        product: str,
+        action: Any,
+        score: float = 0.0,
+    ) -> None:
+        """
+        Store an action and its evaluated score.
+        """
+
+        self.actions.append(
+            {
+                "action": action,
+                "score": float(score),
+            }
+        )
+
+        if len(self.actions) > self.max_history:
+            self.actions.pop(0)
+
+    # ==================================================
+    # Outcome Memory
+    # ==================================================
+
+    def remember_outcome(
+        self,
+        outcome: Any,
+    ) -> None:
+        """
+        Store an observed outcome.
+        """
+
+        self.outcomes.append(
+            outcome
+        )
+
+        if len(self.outcomes) > self.max_history:
+            self.outcomes.pop(0)
+
+    # ==================================================
+    # Experience Learning
+    # ==================================================
+
+    def remember_experience(
+        self,
+        action: Any,
+        reward: float,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """
+        Store one action/reward experience.
+
+        Parameters
+        ----------
+        action:
+            Action that was performed.
+
+        reward:
+            Reward received after the action.
+
+        metadata:
+            Optional contextual information about the
+            experience.
+        """
+
+        experience = {
+            "action": action,
+            "reward": float(reward),
+            "metadata": metadata or {},
+        }
+
+        self.experience_history.append(
+            experience
+        )
+
+        if (
+            len(self.experience_history)
+            > self.max_history
+        ):
+            self.experience_history.pop(0)
+
+    # ==================================================
+    # Experience Queries
+    # ==================================================
+
+    def action_experience_count(
+        self,
+        action: Any,
+    ) -> int:
+        """
+        Return the number of recorded experiences
+        for an action.
+        """
+
+        return sum(
+            1
+            for experience
+            in self.experience_history
+            if experience["action"] == action
+        )
+
+    def action_average_reward(
+        self,
+        action: Any,
     ) -> float:
+        """
+        Return the average historical reward for
+        an action.
 
-        history = self.market_price_history.get(product)
+        Unknown actions return 0.0.
+        """
 
-        if not history:
-            return 0
+        rewards = [
+            experience["reward"]
+            for experience
+            in self.experience_history
+            if experience["action"] == action
+        ]
 
-        return sum(history) / len(history)
+        if not rewards:
+            return 0.0
 
+        return sum(rewards) / len(rewards)
+
+    def action_reward(
+        self,
+        action: Any,
+    ) -> float:
+        """
+        Return the most recent recorded reward
+        for an action.
+
+        Unknown actions return 0.0.
+        """
+
+        for experience in reversed(
+            self.experience_history
+        ):
+
+            if experience["action"] == action:
+
+                return float(
+                    experience["reward"]
+                )
+
+        return 0.0
+
+    # ==================================================
+    # Historical Market Prices
+    # ==================================================
 
     def historical_average_price(
         self,
         product: str,
     ) -> float:
-        history = self.market_price_history.get(product)
+        """
+        Return the historical average market price
+        observed for a product.
 
-        if history is None or len(history) < 2:
-            return 0
+        Unknown products return 0.0.
+        """
 
-        previous_prices = list(history)[:-1]
-
-        if not previous_prices:
-            return 0
-
-        return sum(previous_prices) / len(previous_prices)
-
-    def opponent_gaining_money(self) -> bool:
-
-        if len(self.opponent_money_history) < 2:
-            return False
-
-        return (
-            self.opponent_money_history[-1]
-            >
-            self.opponent_money_history[-2]
+        history = self.price_history.get(
+            product,
+            [],
         )
 
-    def player_gaining_money(self) -> bool:
+        if not history:
+            return 0.0
 
-        if len(self.money_history) < 2:
-            return False
+        return sum(history) / len(history)
 
-        return (
-            self.money_history[-1]
-            >
-            self.money_history[-2]
+    # ==================================================
+    # Existing Score Learning
+    # ==================================================
+
+    def action_average_score(
+        self,
+        action: Any,
+    ) -> float:
+        """
+        Return the average score previously assigned
+        to an action.
+
+        Unknown actions return 0.0.
+        """
+
+        scores = [
+            entry["score"]
+            for entry in self.actions
+            if (
+                isinstance(
+                    entry,
+                    dict,
+                )
+                and entry.get("action") == action
+            )
+        ]
+
+        if not scores:
+            return 0.0
+
+        return sum(scores) / len(scores)
+
+    # ==================================================
+    # Memory Statistics
+    # ==================================================
+
+    @property
+    def state_count(self) -> int:
+        return len(self.states)
+
+    @property
+    def action_count(self) -> int:
+        return len(self.actions)
+
+    @property
+    def outcome_count(self) -> int:
+        return len(self.outcomes)
+
+    @property
+    def experience_count(self) -> int:
+        return len(
+            self.experience_history
         )
 
-    def reset(self):
+    # ==================================================
+    # Reset
+    # ==================================================
 
-        self.__init__()
+    def reset(self) -> None:
+        """
+        Clear all stored memory.
+        """
+
+        self.states.clear()
+
+        self.actions.clear()
+
+        self.outcomes.clear()
+
+        self.experience_history.clear()
+
+        self.price_history.clear()
+
+    # ==================================================
+    # Debug
+    # ==================================================
+
+    def __repr__(self) -> str:
+
+        return (
+            "BrainMemory("
+            f"states={self.state_count}, "
+            f"actions={self.action_count}, "
+            f"outcomes={self.outcome_count}, "
+            f"experiences={self.experience_count}"
+            ")"
+        )
