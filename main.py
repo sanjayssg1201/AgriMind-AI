@@ -3,38 +3,54 @@ main.py
 
 AgriMind AI entry point.
 
-This file is the boundary between the internal AgriMind
-architecture and the Kaggriculture API.
+Responsibilities
+----------------
+1. Receive a Kaggriculture observation.
+2. Parse the observation into the internal GameState.
+3. Pass GameState to the StrategicAgent.
+4. Convert the internal action into the Kaggriculture API format.
+5. Always return a safe, valid action.
 
-Previously completed modules are intentionally not modified.
+The entry point intentionally contains very little game logic.
+Game logic belongs inside the parser, brain, agents, and actions layers.
 """
 
 from typing import Any
 
-
-# =========================================================
-# Agent
-# =========================================================
+# ============================================================
+# Parser
+# ============================================================
 
 try:
-
-    from agents.strategic_agent import StrategicAgent
-
+    from core.parser import parse_observation
 except ImportError:
+    parse_observation = None
 
+
+# ============================================================
+# Agent
+# ============================================================
+
+try:
+    from agents.strategic_agent import StrategicAgent
+except ImportError:
     StrategicAgent = None
 
 
-# =========================================================
+# ============================================================
 # Global Agent
-# =========================================================
+# ============================================================
 
 _agent = None
 
 
 def get_agent():
     """
-    Create the agent once and reuse it across turns.
+    Create the StrategicAgent once and reuse it across turns.
+
+    Keeping the same agent instance allows components such as
+    memory, opponent modelling, and strategic state to persist
+    between turns.
     """
 
     global _agent
@@ -42,7 +58,6 @@ def get_agent():
     if _agent is None:
 
         if StrategicAgent is None:
-
             return None
 
         _agent = StrategicAgent(
@@ -52,16 +67,16 @@ def get_agent():
     return _agent
 
 
-# =========================================================
-# Default Action
-# =========================================================
+# ============================================================
+# Default / Safe Action
+# ============================================================
 
-def default_action():
+def default_action() -> dict:
     """
-    Safe Kaggriculture action.
+    Return the safest valid Kaggriculture action.
 
-    Every turn allows a farmer/farmhand action and
-    a market order list.
+    This is used whenever parsing, agent execution, or action
+    conversion fails.
     """
 
     return {
@@ -70,32 +85,26 @@ def default_action():
     }
 
 
-# =========================================================
+# ============================================================
 # Action Normalization
-# =========================================================
+# ============================================================
 
-def normalize_action(
-    action: Any,
-):
+def normalize_action(action: Any) -> dict:
     """
-    Convert an internal action representation into
-    the Kaggriculture API format.
+    Convert an internal AgriMind action into the external
+    Kaggriculture action format.
 
-    Kaggriculture expects:
-
-        {
-            "farmer": [...],
-            "market": [...]
-        }
+    The actions layer is preferred. This function remains as a
+    compatibility boundary so main.py does not need to know the
+    complete internal action architecture.
     """
 
     if action is None:
-
         return default_action()
 
-    # -----------------------------------------------------
-    # Already in Kaggriculture format
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Already-normalized Kaggriculture action
+    # --------------------------------------------------------
 
     if isinstance(action, dict):
 
@@ -103,23 +112,46 @@ def normalize_action(
             "farmer" in action
             and "market" in action
         ):
-
             return action
 
-    # -----------------------------------------------------
-    # Generic internal action
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Try the centralized actions adapter
+    # --------------------------------------------------------
+
+    try:
+
+        from actions import (
+            normalize_action as actions_normalize_action
+        )
+
+        normalized = actions_normalize_action(action)
+
+        if isinstance(normalized, dict):
+
+            if (
+                "farmer" in normalized
+                and "market" in normalized
+            ):
+                return normalized
+
+    except (ImportError, AttributeError, TypeError):
+        pass
+
+    # --------------------------------------------------------
+    # Compatibility with generic internal action dictionaries
+    # --------------------------------------------------------
 
     if isinstance(action, dict):
 
         action_type = action.get(
             "action",
-            "PASS",
+            action.get(
+                "action_type",
+                "PASS",
+            ),
         )
 
-        target = action.get(
-            "target"
-        )
+        target = action.get("target")
 
         metadata = action.get(
             "metadata",
@@ -135,18 +167,21 @@ def normalize_action(
     return default_action()
 
 
-# =========================================================
-# Internal → Kaggriculture
-# =========================================================
+# ============================================================
+# Compatibility Action Converter
+# ============================================================
 
 def convert_internal_action(
     action_type: str,
-    target=None,
-    metadata=None,
-):
+    target: Any = None,
+    metadata: dict | None = None,
+) -> dict:
     """
-    Convert the generic ActionBuilder representation
-    into the external Kaggriculture action format.
+    Compatibility converter for older internal action objects.
+
+    New action implementations should live in the actions package.
+    This fallback prevents main.py from breaking if an older agent
+    still returns a generic action dictionary.
     """
 
     action_type = str(
@@ -159,26 +194,24 @@ def convert_internal_action(
         else {}
     )
 
-    # -----------------------------------------------------
-    # Movement / no-op
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # No-op
+    # --------------------------------------------------------
 
     if action_type in {
         "PASS",
         "WAIT",
     }:
-
         return default_action()
 
-    # -----------------------------------------------------
+    # --------------------------------------------------------
     # Farmer actions
-    # -----------------------------------------------------
+    # --------------------------------------------------------
 
     farmer_actions = {
         "HARVEST",
         "WATER",
         "FERTILIZE",
-        "PLANT",
         "FEED",
         "CARE",
         "COLLECT",
@@ -187,31 +220,36 @@ def convert_internal_action(
 
     if action_type in farmer_actions:
 
-        command = action_type
-
-        # PLANT requires a crop.
-        if action_type == "PLANT":
-
-            crop = (
-                metadata.get("crop")
-                or target
-            )
-
-            if crop is not None:
-
-                command = [
-                    "PLANT",
-                    str(crop).upper(),
-                ]
-
         return {
-            "farmer": [command],
+            "farmer": [action_type],
             "market": [],
         }
 
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Plant
+    # --------------------------------------------------------
+
+    if action_type == "PLANT":
+
+        crop = (
+            metadata.get("crop")
+            or target
+        )
+
+        if crop is None:
+            return default_action()
+
+        return {
+            "farmer": [[
+                "PLANT",
+                str(crop).upper(),
+            ]],
+            "market": [],
+        }
+
+    # --------------------------------------------------------
     # Sell
-    # -----------------------------------------------------
+    # --------------------------------------------------------
 
     if action_type == "SELL":
 
@@ -226,7 +264,14 @@ def convert_internal_action(
         )
 
         if product is None:
+            return default_action()
 
+        try:
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            quantity = 1
+
+        if quantity <= 0:
             return default_action()
 
         return {
@@ -234,13 +279,13 @@ def convert_internal_action(
             "market": [[
                 "SELL",
                 str(product).upper(),
-                int(quantity),
+                quantity,
             ]],
         }
 
-    # -----------------------------------------------------
-    # Buy seed
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Buy Seed
+    # --------------------------------------------------------
 
     if action_type == "BUY_SEED":
 
@@ -255,7 +300,14 @@ def convert_internal_action(
         )
 
         if crop is None:
+            return default_action()
 
+        try:
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            quantity = 1
+
+        if quantity <= 0:
             return default_action()
 
         return {
@@ -263,13 +315,13 @@ def convert_internal_action(
             "market": [[
                 "BUY_SEED",
                 str(crop).upper(),
-                int(quantity),
+                quantity,
             ]],
         }
 
-    # -----------------------------------------------------
-    # Buy animal
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Buy Animal
+    # --------------------------------------------------------
 
     if action_type == "BUY_ANIMAL":
 
@@ -284,7 +336,14 @@ def convert_internal_action(
         )
 
         if animal is None:
+            return default_action()
 
+        try:
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            quantity = 1
+
+        if quantity <= 0:
             return default_action()
 
         return {
@@ -292,13 +351,71 @@ def convert_internal_action(
             "market": [[
                 "BUY_ANIMAL",
                 str(animal).upper(),
-                int(quantity),
+                quantity,
             ]],
         }
 
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Buy Product
+    # --------------------------------------------------------
+
+    if action_type == "BUY_PRODUCT":
+
+        product = (
+            metadata.get("product")
+            or target
+        )
+
+        quantity = metadata.get(
+            "quantity",
+            1,
+        )
+
+        if product is None:
+            return default_action()
+
+        try:
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            quantity = 1
+
+        if quantity <= 0:
+            return default_action()
+
+        return {
+            "farmer": ["PASS"],
+            "market": [[
+                "BUY_PRODUCT",
+                str(product).upper(),
+                quantity,
+            ]],
+        }
+
+    # --------------------------------------------------------
+    # Place Animal
+    # --------------------------------------------------------
+
+    if action_type == "PLACE":
+
+        animal = (
+            metadata.get("animal")
+            or target
+        )
+
+        if animal is None:
+            return default_action()
+
+        return {
+            "farmer": [
+                "PLACE",
+                str(animal).upper(),
+            ],
+            "market": [],
+        }
+
+    # --------------------------------------------------------
     # Hire
-    # -----------------------------------------------------
+    # --------------------------------------------------------
 
     if action_type == "HIRE":
 
@@ -309,9 +426,9 @@ def convert_internal_action(
             ],
         }
 
-    # -----------------------------------------------------
+    # --------------------------------------------------------
     # Expansion
-    # -----------------------------------------------------
+    # --------------------------------------------------------
 
     if action_type == "EXPAND":
 
@@ -322,52 +439,104 @@ def convert_internal_action(
             ],
         }
 
-    # -----------------------------------------------------
-    # Unknown
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Unknown action
+    # --------------------------------------------------------
 
     return default_action()
 
 
-# =========================================================
+# ============================================================
 # Main Agent Function
-# =========================================================
+# ============================================================
 
-def agent(
-    observation: dict,
-):
+def agent(observation: dict) -> dict:
     """
-    Kaggriculture-compatible agent entry point.
+    Kaggriculture-compatible entry point.
 
     Parameters
     ----------
     observation:
-        Current Kaggriculture observation.
+        Raw observation supplied by Kaggriculture.
 
     Returns
     -------
     dict
-        Kaggriculture action dictionary.
+        Valid Kaggriculture action.
     """
+
+    # --------------------------------------------------------
+    # Validate observation
+    # --------------------------------------------------------
 
     if not isinstance(
         observation,
         dict,
     ):
-
         return default_action()
 
-    ai = get_agent()
+    # --------------------------------------------------------
+    # Parser
+    # --------------------------------------------------------
 
-    if ai is None:
-
+    if parse_observation is None:
         return default_action()
 
     try:
 
-        internal_action = ai.act(
+        state = parse_observation(
             observation
         )
+
+    except Exception:
+
+        return default_action()
+
+    if state is None:
+        return default_action()
+
+    # --------------------------------------------------------
+    # Agent
+    # --------------------------------------------------------
+
+    ai = get_agent()
+
+    if ai is None:
+        return default_action()
+
+    # --------------------------------------------------------
+    # Decision
+    # --------------------------------------------------------
+
+    try:
+
+        internal_action = ai.act(
+            state
+        )
+
+    except TypeError:
+
+        # Compatibility fallback for agents that still expect
+        # the raw Kaggriculture observation.
+        try:
+
+            internal_action = ai.act(
+                observation
+            )
+
+        except Exception:
+
+            return default_action()
+
+    except Exception:
+
+        return default_action()
+
+    # --------------------------------------------------------
+    # Normalize
+    # --------------------------------------------------------
+
+    try:
 
         return normalize_action(
             internal_action
@@ -375,22 +544,19 @@ def agent(
 
     except Exception:
 
-        # Never allow an unexpected internal error
-        # to submit an invalid action to the environment.
-
         return default_action()
 
 
-# =========================================================
+# ============================================================
 # Alias
-# =========================================================
+# ============================================================
 
 my_agent = agent
 
 
-# =========================================================
+# ============================================================
 # Local Execution
-# =========================================================
+# ============================================================
 
 if __name__ == "__main__":
 

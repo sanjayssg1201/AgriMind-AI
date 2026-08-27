@@ -1,91 +1,138 @@
 """
 submission.py
 
-AgriMind AI submission wrapper.
+AgriMind AI Kaggriculture submission entry point.
 
-The Kaggriculture platform uses main.py as the actual
-entry point. This module provides a clean wrapper for
-local testing and packaging.
+Architecture
+------------
+
+    Kaggriculture
+          |
+          v
+    submission.run()
+          |
+          v
+       main.agent()
+          |
+          v
+    core.parser
+          |
+          v
+      GameState
+          |
+          v
+   StrategicAgent
+          |
+          v
+   Internal Action
+          |
+          v
+       actions
+          |
+          v
+ Kaggriculture Action
+
+This file intentionally contains no game logic.
+
+All parsing, state construction, decision making, memory,
+economy, planning, risk analysis, and action conversion belong
+to the internal AgriMind architecture.
 """
+
+from typing import Any
 
 from main import agent
 
 
-# =========================================================
-# Public Entry Point
-# =========================================================
+# ============================================================
+# Public Submission API
+# ============================================================
 
-def run(observation):
+def run(observation: dict) -> dict:
     """
-    Run the AgriMind agent on one observation.
+    Execute AgriMind AI for one Kaggriculture observation.
+
+    Parameters
+    ----------
+    observation:
+        Raw observation supplied by the Kaggriculture environment.
+
+    Returns
+    -------
+    dict
+        Kaggriculture-compatible action.
     """
 
     return agent(observation)
 
 
-# =========================================================
-# Local Test
-# =========================================================
+# ============================================================
+# Standard Agent Alias
+# ============================================================
 
-def test_agent():
+my_agent = run
 
-    observation = {
+
+# ============================================================
+# Optional Compatibility Entry Point
+# ============================================================
+
+def submit(observation: dict) -> dict:
+    """
+    Compatibility wrapper for environments or local tooling
+    that use a `submit` function name.
+    """
+
+    return run(observation)
+
+
+# ============================================================
+# Local Smoke Test
+# ============================================================
+
+def smoke_test() -> dict:
+    """
+    Run a minimal end-to-end smoke test.
+
+    The observation is deliberately small. The real parser is
+    responsible for handling the complete Kaggriculture schema.
+    """
+
+    observation: dict[str, Any] = {
+        "step": 0,
         "player": 0,
         "day": 0,
         "hour": 0,
-
-        "farms": [
-            {
-                "money": 3000,
-                "tiles": [],
-                "farmer": [0, 0],
-                "hands": [],
-                "unlocked_quadrants": ["NW"],
-                "hires_today": 0,
-            },
-            {
-                "money": 3000,
-                "tiles": [],
-                "farmer": [0, 0],
-                "hands": [],
-                "unlocked_quadrants": ["NW"],
-                "hires_today": 0,
-            },
-        ],
-
-        "market": {
-            "inventory": {},
-            "prices": {},
-        },
-
-        "town": {
-            "unlocked_shops": [],
-        },
-
-        "private": {
-            "shed": {},
-            "seeds": {},
-            "inventories": [],
-        },
     }
 
-    result = run(
-        observation
-    )
+    result = run(observation)
 
-    print(
-        "Agent output:"
-    )
+    if not isinstance(result, dict):
+        raise TypeError(
+            "Agent must return a dictionary."
+        )
 
-    print(result)
+    if "farmer" not in result:
+        raise ValueError(
+            "Agent result is missing the 'farmer' field."
+        )
+
+    if "market" not in result:
+        raise ValueError(
+            "Agent result is missing the 'market' field."
+        )
 
     return result
 
 
-# =========================================================
-# Main
-# =========================================================
+# ============================================================
+# Local Execution
+# ============================================================
 
 if __name__ == "__main__":
 
-    test_agent()
+    result = smoke_test()
+
+    print("Submission smoke test: OK")
+    print("Agent output:")
+    print(result)
