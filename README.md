@@ -1,4 +1,4 @@
-```markdown
+
 # AgriMind AI
 
 AgriMind AI is an intelligent decision-making system designed for the Kaggriculture farming environment.
